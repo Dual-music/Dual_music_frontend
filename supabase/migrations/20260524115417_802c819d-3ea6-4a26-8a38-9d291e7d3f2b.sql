@@ -1,0 +1,1 @@
+insert into public.platform_settings (key, value) values ('cinetpay_proxy_enabled', '{"enabled": false}'::jsonb) on conflict (key) do nothing;

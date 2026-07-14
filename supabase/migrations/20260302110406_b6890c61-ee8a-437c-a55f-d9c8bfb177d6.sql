@@ -1,0 +1,1 @@
+ALTER TABLE public.gift_transactions ADD COLUMN live_id uuid DEFAULT NULL;

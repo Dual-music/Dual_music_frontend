@@ -1,0 +1,1 @@
+ALTER TABLE public.user_gifts ADD CONSTRAINT user_gifts_user_gift_unique UNIQUE (user_id, gift_id);

@@ -1,0 +1,27 @@
+app = "cinetpay-proxy"
+primary_region = "cdg"
+
+[build]
+  image = "denoland/deno:2.1.4"
+
+[env]
+  PORT = "8080"
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 8080
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+[processes]
+  app = "deno run --allow-net --allow-env server.ts"

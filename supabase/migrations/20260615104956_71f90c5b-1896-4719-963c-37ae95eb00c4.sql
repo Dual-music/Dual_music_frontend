@@ -1,0 +1,2 @@
+ALTER TABLE public.replay_videos ADD COLUMN IF NOT EXISTS competition_id UUID REFERENCES public.competitions(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_replay_videos_competition_id ON public.replay_videos(competition_id);
