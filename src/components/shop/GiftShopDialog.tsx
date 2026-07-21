@@ -49,7 +49,8 @@ export const GiftShopDialog = ({ open, onOpenChange }: Props) => {
         (g ?? []).map((gift) => ({
           id: gift.id,
           name: gift.name,
-          price: gift.price_credits,
+          // Backend renvoie `price` (pas `price_credits`) — on lit les deux.
+          price: Number(gift.price_credits ?? (gift as { price?: number }).price ?? 0),
           image_url: (gift.image_url as string | null) ?? null,
         })),
       );
@@ -100,7 +101,7 @@ export const GiftShopDialog = ({ open, onOpenChange }: Props) => {
               <DialogDescription className="flex items-center justify-between gap-2 text-xs">
                 <span className="truncate">{t("giftShopSubtitle")}</span>
                 <span className="inline-flex items-center gap-1 font-bold text-foreground shrink-0">
-                  <Wallet className="w-4 h-4 text-primary" /> ${balance.toFixed(2)}
+                  <Wallet className="w-4 h-4 text-primary" /> {balance.toLocaleString("fr-FR")} Crédits
                 </span>
               </DialogDescription>
             </div>
@@ -127,7 +128,7 @@ export const GiftShopDialog = ({ open, onOpenChange }: Props) => {
                           {q > 0 && <Badge className="bg-green-500 text-[10px] px-1">x{q}</Badge>}
                         </div>
                         <div className="flex items-center justify-between gap-1">
-                          <span className="text-sm font-bold text-primary">${g.price}</span>
+                          <span className="text-sm font-bold text-primary">{g.price.toLocaleString("fr-FR")} Crédits</span>
                           <Button
                             size="sm"
                             onClick={() => buy(g)}

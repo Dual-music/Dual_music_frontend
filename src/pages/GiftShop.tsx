@@ -55,7 +55,9 @@ const GiftShop = () => {
         (giftsData ?? []).map((g) => ({
           id: g.id,
           name: g.name,
-          price: g.price_credits,
+          // Le backend renvoie `price` (le champ `price_credits` n'existe pas) — on lit
+          // les deux par sécurité pour que le prix s'affiche toujours.
+          price: Number(g.price_credits ?? (g as { price?: number }).price ?? 0),
           image_url: (g.image_url as string | null) ?? null,
         })),
       );
@@ -147,7 +149,7 @@ const GiftShop = () => {
             <Card className="p-4 flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <Wallet className="w-5 h-5 text-primary" />
-                <span className="text-2xl font-bold">${walletBalance.toFixed(2)}</span>
+                <span className="text-2xl font-bold">{walletBalance.toLocaleString("fr-FR")} Crédits</span>
               </div>
               <Button onClick={() => navigate("/wallet")} variant="outline" size="sm">
                 {t("rechargeWallet")}
@@ -205,7 +207,7 @@ const GiftShop = () => {
                       )}
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-2xl font-bold text-primary">${gift.price}</span>
+                      <span className="text-2xl font-bold text-primary">{gift.price.toLocaleString("fr-FR")} Crédits</span>
                       <div className="flex items-center gap-2">
                         <Button
                           size="sm"
