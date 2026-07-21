@@ -93,6 +93,19 @@ export function resetPassword(input: {
   return http.post("/auth/password/reset", input, { anonymous: true });
 }
 
+/**
+ * POST /auth/otp/email/send — (ré)envoie le code de vérification à l'email du caller.
+ * Requiert un Bearer (l'utilisateur vient d'être créé/connecté à l'inscription).
+ */
+export function sendEmailOtp(): Promise<{ sent: boolean }> {
+  return http.post("/auth/otp/email/send", {});
+}
+
+/** POST /auth/otp/email/verify — vérifie le code reçu par email. */
+export function verifyEmailOtp(code: string): Promise<{ verified: boolean }> {
+  return http.post("/auth/otp/email/verify", { code });
+}
+
 /** POST /auth/password/change */
 export function changePassword(
   newPassword: string,
