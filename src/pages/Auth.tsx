@@ -11,6 +11,7 @@ import logoImg from "@/assets/logo.png";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import * as authApi from "@/api/endpoints/auth";
+import * as usersApi from "@/api/endpoints/users";
 import { ApiError } from "@/api/http";
 import { useToast } from "@/hooks/use-toast";
 import { COUNTRIES } from "@/data/countries";
@@ -56,6 +57,14 @@ const Auth = () => {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingName, setOnboardingName] = useState("");
 
+  // Inscription en 3 étapes : 1 = identifiants (email+mdp+confirmation),
+  // 2 = code reçu par email, 3 = profil (nom, pays, numéro).
+  const [signupStep, setSignupStep] = useState<1 | 2 | 3>(1);
+  const [verifyCode, setVerifyCode] = useState("");
+  // Vrai pendant tout le wizard : empêche la redirection auto (l'utilisateur est
+  // authentifié dès l'étape 1 mais doit encore valider le code + compléter son profil).
+  const [wizardActive, setWizardActive] = useState(false);
+
   const { data: referralEnabled = true, isLoading: referralEnabledLoading } = useReferralEnabled();
   const referralLocked = refFromUrl.length > 0 && referralEnabled;
 
@@ -94,11 +103,13 @@ const Auth = () => {
   };
 
   // Redirect an already-authenticated user away from the auth page, by role.
+  // Suspendu pendant le wizard d'inscription (l'utilisateur est déjà authentifié dès
+  // l'étape 1 mais doit valider le code puis compléter son profil avant la redirection).
   useEffect(() => {
-    if (ready && isAuthenticated) {
+    if (ready && isAuthenticated && !wizardActive) {
       navigate(isAdmin ? "/admin" : "/profile");
     }
-  }, [ready, isAuthenticated, isAdmin, navigate]);
+  }, [ready, isAuthenticated, isAdmin, navigate, wizardActive]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -145,55 +156,32 @@ const Auth = () => {
   const strengthWidths = { weak: "w-1/3", medium: "w-2/3", strong: "w-full" };
   const strengthLabels = { weak: t("passwordWeak"), medium: t("passwordMedium"), strong: t("passwordStrong") };
 
-  const handleSignup = async (e: React.FormEvent) => {
+  // Étape 1 — crée le compte avec email + mot de passe (+ code parrainage éventuel de l'URL).
+  // Le backend envoie automatiquement le code de vérification par email → on passe à l'étape 2.
+  const handleSignupStep1 = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!isSignupEmailValid) {
       setSignupEmailTouched(true);
-      toast({
-        title: t("invalidEmail"),
-        description: t("invalidEmailDesc"),
-        variant: "destructive",
-      });
+      toast({ title: t("invalidEmail"), description: t("invalidEmailDesc"), variant: "destructive" });
       return;
     }
-
     if (signupPassword !== signupConfirmPassword) {
-      toast({
-        title: t("error"),
-        description: t("passwordsMismatchToast"),
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (!acceptedTerms) {
-      toast({
-        title: t("acceptTermsRequired"),
-        description: t("acceptTermsDesc"),
-        variant: "destructive",
-      });
+      toast({ title: t("error"), description: t("passwordsMismatchToast"), variant: "destructive" });
       return;
     }
 
     setLoading(true);
-
+    setWizardActive(true); // Empêche la redirection auto pendant les étapes suivantes.
     try {
       const user = await signUp({
         email: signupEmail,
         password: signupPassword,
-        fullName: signupName,
-        phone: signupPhone ? `${selectedCountry.dial}${signupPhone}` : null,
-        countryCode,
-        phoneCountryCode: selectedCountry.dial,
         referralCode: referralEnabled ? signupReferralCode.trim() || null : null,
       });
-
-      if (user) {
-        setOnboardingName(signupName);
-        setShowOnboarding(true);
-      }
+      if (user) setSignupStep(2);
     } catch (error: any) {
+      setWizardActive(false);
       toast({
         title: t("signupError"),
         description: error instanceof ApiError ? error.message : String(error?.message ?? error),
@@ -202,6 +190,71 @@ const Auth = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Étape 2 — vérifie le code reçu par email, puis passe à la saisie du profil.
+  const handleVerifyCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (verifyCode.trim().length < 4) return;
+    setLoading(true);
+    try {
+      await authApi.verifyEmailOtp(verifyCode.trim());
+      setSignupStep(3);
+    } catch (error: any) {
+      toast({
+        title: t("error"),
+        description: error instanceof ApiError ? error.message : String(error?.message ?? error),
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // (Ré)envoie le code de vérification par email.
+  const handleResendCode = async () => {
+    try {
+      await authApi.sendEmailOtp();
+      toast({ title: t("resetEmailSent") ?? "Code envoyé", description: "Un nouveau code a été envoyé par email." });
+    } catch (error: any) {
+      toast({
+        title: t("error"),
+        description: error instanceof ApiError ? error.message : String(error?.message ?? error),
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Étape 3 — enregistre le profil (nom, pays, numéro) puis entre dans l'app.
+  const handleCompleteProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!signupName.trim()) return;
+    setLoading(true);
+    try {
+      await usersApi.updateMe({
+        full_name: signupName.trim(),
+        country_code: countryCode,
+        phone: signupPhone.trim() || null,
+        phone_country_code: selectedCountry.dial,
+      });
+      setWizardActive(false); // Autorise de nouveau la redirection.
+      setOnboardingName(signupName);
+      setShowOnboarding(true);
+    } catch (error: any) {
+      toast({
+        title: t("error"),
+        description: error instanceof ApiError ? error.message : String(error?.message ?? error),
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Passe l'étape profil (l'utilisateur pourra la compléter plus tard).
+  const handleSkipProfile = () => {
+    setWizardActive(false);
+    navigate(isAdmin ? "/admin" : "/profile");
   };
 
   if (showOnboarding) {
@@ -287,18 +340,9 @@ const Auth = () => {
           </TabsContent>
 
           <TabsContent value="signup">
-            <form onSubmit={handleSignup} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="signup-name">{t("fullName")}</Label>
-                <Input
-                  id="signup-name"
-                  value={signupName}
-                  onChange={(e) => setSignupName(e.target.value)}
-                  placeholder="John Doe"
-                  className="bg-background/50"
-                  required
-                />
-              </div>
+            {/* Étape 1 — identifiants uniquement (email + mot de passe + confirmation). */}
+            {signupStep === 1 && (
+            <form onSubmit={handleSignupStep1} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="signup-email">{t("email")}</Label>
                 <div className="relative">
@@ -406,6 +450,64 @@ const Auth = () => {
                 )}
               </div>
 
+              <Button
+                type="submit"
+                className="w-full bg-gradient-primary hover:shadow-glow transition-all"
+                disabled={loading || !isSignupEmailValid || signupPassword.length < 6 || signupPassword !== signupConfirmPassword}
+              >
+                {loading ? t("creatingAccount") : "Continuer"}
+              </Button>
+            </form>
+            )}
+
+            {/* Étape 2 — code de vérification reçu par email. */}
+            {signupStep === 2 && (
+            <form onSubmit={handleVerifyCode} className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Un code de vérification a été envoyé à <span className="font-medium text-foreground">{signupEmail}</span>. Saisis-le ci-dessous.
+              </p>
+              <div className="space-y-2">
+                <Label htmlFor="verify-code">Code de vérification</Label>
+                <Input
+                  id="verify-code"
+                  inputMode="numeric"
+                  value={verifyCode}
+                  onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, ""))}
+                  placeholder="123456"
+                  className="bg-background/50 tracking-widest text-center text-lg"
+                  maxLength={8}
+                  required
+                />
+              </div>
+              <Button
+                type="submit"
+                className="w-full bg-gradient-primary hover:shadow-glow transition-all"
+                disabled={loading || verifyCode.trim().length < 4}
+              >
+                {loading ? "Vérification…" : "Vérifier"}
+              </Button>
+              <Button type="button" variant="link" className="w-full text-sm" onClick={handleResendCode}>
+                Renvoyer le code
+              </Button>
+            </form>
+            )}
+
+            {/* Étape 3 — profil : nom, pays, numéro. */}
+            {signupStep === 3 && (
+            <form onSubmit={handleCompleteProfile} className="space-y-4">
+              <p className="text-sm text-muted-foreground">Email vérifié ✅. Complète ton profil pour finaliser.</p>
+              <div className="space-y-2">
+                <Label htmlFor="signup-name">{t("fullName")}</Label>
+                <Input
+                  id="signup-name"
+                  value={signupName}
+                  onChange={(e) => setSignupName(e.target.value)}
+                  placeholder="John Doe"
+                  className="bg-background/50"
+                  required
+                />
+              </div>
+
               {/* Country + Phone */}
               <div className="space-y-2">
                 <Label>{t("phoneOptional")}</Label>
@@ -471,61 +573,18 @@ const Auth = () => {
                 </div>
               </div>
 
-              {/* Referral code - hidden when admin disables referral system */}
-              {referralEnabled && (
-                <div className="space-y-2">
-                  <Label htmlFor="signup-referral" className="flex items-center gap-2">
-                    <Gift className="w-4 h-4 text-primary" />
-                    {referralLocked ? t("referralCodeLocked") : t("referralCodeOptional")}
-                  </Label>
-                  <div className="relative">
-                    <Input
-                      id="signup-referral"
-                      type="text"
-                      value={signupReferralCode}
-                      onChange={(e) => setSignupReferralCode(e.target.value.toUpperCase())}
-                      placeholder={t("referralCodePlaceholder")}
-                      className={`bg-background/50 ${referralLocked ? "pr-10 opacity-90 cursor-not-allowed" : ""}`}
-                      readOnly={referralLocked}
-                      disabled={referralLocked}
-                    />
-                    {referralLocked && (
-                      <Lock className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {referralLocked ? t("referralCodeFromLink") : t("referralCodeHelp")}
-                  </p>
-                </div>
-              )}
-
-              <div className="flex items-start gap-3 pt-1">
-                <Checkbox
-                  id="accept-terms"
-                  checked={acceptedTerms}
-                  onCheckedChange={(checked) => setAcceptedTerms(checked === true)}
-                  className="mt-0.5"
-                />
-                <Label htmlFor="accept-terms" className="text-sm text-muted-foreground leading-relaxed cursor-pointer">
-                  {t("acceptTermsLabel")}{" "}
-                  <Link to="/privacy" className="text-primary hover:underline" target="_blank">
-                    {t("privacyPolicyLink")}
-                  </Link>{" "}
-                  {t("andThe")}{" "}
-                  <Link to="/terms" className="text-primary hover:underline" target="_blank">
-                    {t("termsLink")}
-                  </Link>
-                </Label>
-              </div>
-
               <Button
                 type="submit"
                 className="w-full bg-gradient-primary hover:shadow-glow transition-all"
-                disabled={loading}
+                disabled={loading || !signupName.trim()}
               >
-                {loading ? t("creatingAccount") : t("createAccount")}
+                {loading ? "Enregistrement…" : "Terminer"}
+              </Button>
+              <Button type="button" variant="link" className="w-full text-sm" onClick={handleSkipProfile}>
+                Plus tard
               </Button>
             </form>
+            )}
           </TabsContent>
         </Tabs>
 
