@@ -43,6 +43,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { UserBadges } from "@/components/profile/UserBadges";
 import { CountryBadge } from "@/components/profile/CountryBadge";
+import { COUNTRIES } from "@/data/countries";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LifestyleVideoUpload } from "@/components/artist/LifestyleVideoUpload";
 import { ArtistValidationForm } from "@/components/artist/ArtistValidationForm";
@@ -129,6 +130,8 @@ const Profile = () => {
   const [loading, setLoading] = useState(true);
   const [fullName, setFullName] = useState("");
   const [bio, setBio] = useState("");
+  const [phone, setPhone] = useState("");
+  const [countryCode, setCountryCode] = useState("FR");
   const [artistStats, setArtistStats] = useState<ArtistStats>({ totalVotes: 0, totalGifts: 0, totalDuels: 0, wonDuels: 0 });
   const [managerStats, setManagerStats] = useState<ManagerStats>({ totalDuelsManaged: 0, activeDuels: 0, totalGiftsReceived: 0 });
   const [fanStats, setFanStats] = useState<FanStats>({ totalVotesCast: 0, totalGiftsSent: 0, totalTickets: 0 });
@@ -152,6 +155,8 @@ const Profile = () => {
       setProfile(authProfile as any);
       setFullName((authProfile as any).full_name || "");
       setBio((authProfile as any).bio || "");
+      setPhone((authProfile as any).phone || "");
+      setCountryCode((authProfile as any).country_code || "FR");
     }
     setRoles(authRoles as string[]);
   }, [authProfile, authRoles]);
@@ -180,13 +185,20 @@ const Profile = () => {
     if (!profile) return;
 
     try {
-      await users.updateMe({ full_name: fullName, bio });
+      const dial = COUNTRIES.find((c) => c.code === countryCode)?.dial;
+      await users.updateMe({
+        full_name: fullName,
+        bio,
+        country_code: countryCode,
+        phone: phone || null,
+        phone_country_code: dial,
+      });
 
       toast({
         title: t("profileUpdated"),
         description: t("profileSaved"),
       });
-      
+
       setEditMode(false);
       void refreshMe();
     } catch (error: any) {
@@ -195,6 +207,29 @@ const Profile = () => {
         description: error.message,
         variant: "destructive",
       });
+    }
+  };
+
+  /** Programme la suppression du compte (grâce 20 jours). */
+  const handleRequestDeletion = async () => {
+    if (!window.confirm("Confirmer la suppression de ton compte ? Un délai de 20 jours te permettra de l'annuler avant l'effacement définitif.")) return;
+    try {
+      await users.requestAccountDeletion();
+      toast({ title: "Suppression programmée", description: "Ton compte sera supprimé dans 20 jours. Tu peux annuler à tout moment d'ici là." });
+      void refreshMe();
+    } catch (error: any) {
+      toast({ title: "Erreur", description: error.message, variant: "destructive" });
+    }
+  };
+
+  /** Annule une suppression programmée. */
+  const handleCancelDeletion = async () => {
+    try {
+      await users.cancelAccountDeletion();
+      toast({ title: "Suppression annulée", description: "Ton compte reste actif." });
+      void refreshMe();
+    } catch (error: any) {
+      toast({ title: "Erreur", description: error.message, variant: "destructive" });
     }
   };
 
@@ -412,6 +447,28 @@ const Profile = () => {
                         placeholder={t("shortDescription")}
                       />
                     </div>
+                    <div>
+                      <Label htmlFor="country">Pays</Label>
+                      <select
+                        id="country"
+                        value={countryCode}
+                        onChange={(e) => setCountryCode(e.target.value)}
+                        className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                      >
+                        {COUNTRIES.map((c) => (
+                          <option key={c.code} value={c.code}>{c.name} ({c.dial})</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <Label htmlFor="phone">Numéro de téléphone</Label>
+                      <Input
+                        id="phone"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        placeholder="Ex: 0700000000"
+                      />
+                    </div>
                   </div>
                   <Button onClick={handleUpdateProfile} className={`bg-gradient-to-r ${getRoleGradient()} text-white border-0`}>
                     {t("saveBtn")}
@@ -419,6 +476,30 @@ const Profile = () => {
                   
                   <div className="mt-6 pt-6 border-t border-border">
                     <PasswordChange />
+                  </div>
+
+                  {/* Zone sensible : suppression de compte (grâce 20 jours) */}
+                  <div className="mt-6 pt-6 border-t border-destructive/40 space-y-3">
+                    <h3 className="font-semibold text-destructive">Supprimer mon compte</h3>
+                    {(user as any)?.deletionScheduledAt ? (
+                      <>
+                        <p className="text-sm text-destructive">
+                          Suppression prévue le {new Date((user as any).deletionScheduledAt).toLocaleDateString()}. Tu peux encore l'annuler.
+                        </p>
+                        <Button variant="outline" onClick={handleCancelDeletion}>
+                          Annuler la suppression
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-sm text-muted-foreground">
+                          Un délai de 20 jours te permet d'annuler avant l'effacement définitif.
+                        </p>
+                        <Button variant="destructive" onClick={handleRequestDeletion}>
+                          Supprimer mon compte
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
               )}

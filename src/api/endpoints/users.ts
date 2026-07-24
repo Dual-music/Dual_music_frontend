@@ -66,6 +66,16 @@ export function updateMe(patch: Record<string, unknown>): Promise<Record<string,
   return http.patch("/users/me", patch);
 }
 
+/** POST /users/me/deletion — programme la suppression du compte (grâce 20 jours). */
+export function requestAccountDeletion(): Promise<{ deletionScheduledAt: string }> {
+  return http.post("/users/me/deletion");
+}
+
+/** DELETE /users/me/deletion — annule une suppression programmée. */
+export function cancelAccountDeletion(): Promise<{ cancelled: boolean }> {
+  return http.delete("/users/me/deletion");
+}
+
 /** GET /users/me/following — artists the caller follows. */
 export function myFollowing(): Promise<Array<Record<string, unknown>>> {
   return http.get("/users/me/following");
