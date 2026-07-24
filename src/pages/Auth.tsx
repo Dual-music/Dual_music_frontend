@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Eye, EyeOff, Search, ArrowLeft, CheckCircle2, XCircle, Gift, Lock } from "lucide-react";
-import logoImg from "@/assets/logo.png";
+import logoImg from "@/assets/logo-tr.png";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import * as authApi from "@/api/endpoints/auth";
@@ -278,11 +278,8 @@ const Auth = () => {
         </div>
 
         <div className="text-center mb-8">
-          <Link to="/" className="inline-flex items-center gap-2 mb-4">
-            <img src={logoImg} alt="Dual Music" className="w-8 h-8" />
-            <span className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-              Dual Music
-            </span>
+          <Link to="/" className="inline-flex items-center justify-center mb-4">
+            <img src={logoImg} alt="Dual Music" className="h-20 w-auto" />
           </Link>
           <p className="text-muted-foreground">
             {t("joinCommunity")}
