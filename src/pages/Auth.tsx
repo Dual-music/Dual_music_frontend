@@ -289,6 +289,7 @@ const Auth = () => {
           </p>
         </div>
 
+        {!showForgotPassword && (
         <Tabs defaultValue={referralLocked ? "signup" : "login"} className="w-full">
           <TabsList className="grid w-full grid-cols-2 mb-6">
             <TabsTrigger value="login">{t("loginTab")}</TabsTrigger>
@@ -587,9 +588,10 @@ const Auth = () => {
             )}
           </TabsContent>
         </Tabs>
+        )}
 
         {showForgotPassword && (
-          <div className="mt-6 space-y-4">
+          <div className="space-y-4">
             <h3 className="text-lg font-semibold">{t("resetPassword")}</h3>
             {resetSent ? (
               <div className="text-center space-y-4">
@@ -616,7 +618,7 @@ const Auth = () => {
                 </div>
                 <div className="flex gap-2">
                   <Button type="button" variant="outline" onClick={() => setShowForgotPassword(false)}>
-                    {t("cancel")}
+                    ← {t("backToLogin")}
                   </Button>
                   <Button type="submit" disabled={loading} className="flex-1">
                     {loading ? t("sending") : t("sendResetLink")}
