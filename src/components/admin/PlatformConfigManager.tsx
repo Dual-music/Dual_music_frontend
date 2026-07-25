@@ -79,6 +79,9 @@ const PlatformConfigManager = () => {
   const [payoutCfg, setPayoutCfg] = useState<PayoutConfig>(DEFAULT_PAYOUT_CONFIG);
   const [liveReportCfg, setLiveReportCfg] = useState<LiveReportConfig>(DEFAULT_LIVE_REPORT_CONFIG);
 
+  const [managerReqEnabled, setManagerReqEnabled] = useState<boolean>(true);
+  const [artistReqEnabled, setArtistReqEnabled] = useState<boolean>(true);
+  const [roleReqLoading, setRoleReqLoading] = useState(false);
   const [proxyEnabled, setProxyEnabled] = useState<boolean>(false);
   const [proxyLoading, setProxyLoading] = useState(false);
   const [proxyCheckLoading, setProxyCheckLoading] = useState(false);
@@ -109,6 +112,15 @@ const PlatformConfigManager = () => {
       const proxyVal = settings["cinetpay_proxy_enabled"] as Record<string, unknown> | undefined;
       if (proxyVal) {
         setProxyEnabled((proxyVal.enabled as boolean) === true);
+      }
+      // Ouverture des candidatures de rôle (valeur = booléen brut OU { enabled }).
+      const readEnabled = (raw: unknown): boolean =>
+        typeof raw === "boolean" ? raw : ((raw as { enabled?: boolean } | undefined)?.enabled ?? true);
+      if (settings["manager_requests_enabled"] !== undefined) {
+        setManagerReqEnabled(readEnabled(settings["manager_requests_enabled"]));
+      }
+      if (settings["artist_requests_enabled"] !== undefined) {
+        setArtistReqEnabled(readEnabled(settings["artist_requests_enabled"]));
       }
       const providersVal = settings["payment_providers_config"] as Record<string, unknown> | undefined;
       if (providersVal) {
@@ -174,6 +186,21 @@ const PlatformConfigManager = () => {
       toast({ title: t("error"), description: e instanceof Error ? e.message : "", variant: "destructive" });
     } finally {
       setProxyLoading(false);
+    }
+  };
+
+  /** Active/désactive l'ouverture des candidatures d'un rôle (artiste/manager). */
+  const toggleRoleRequests = async (key: "manager_requests_enabled" | "artist_requests_enabled", next: boolean) => {
+    setRoleReqLoading(true);
+    try {
+      await updatePlatformSetting(key, { enabled: next });
+      if (key === "manager_requests_enabled") setManagerReqEnabled(next);
+      else setArtistReqEnabled(next);
+      toast({ title: t("success") });
+    } catch (e) {
+      toast({ title: t("error"), description: e instanceof Error ? e.message : "", variant: "destructive" });
+    } finally {
+      setRoleReqLoading(false);
     }
   };
 
@@ -293,6 +320,30 @@ const PlatformConfigManager = () => {
               checked={concertApproval.require_admin_approval}
               onCheckedChange={(v) => setConcertApproval({ require_admin_approval: v })}
             />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Ouverture des candidatures artiste / manager */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Settings className="w-5 h-5" /> {t("adminRoleRequestsTitle")}</CardTitle>
+          <CardDescription>{t("adminRoleRequestsDesc")}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg">
+            <div>
+              <Label className="text-base font-medium">{t("adminArtistRequestsToggle")}</Label>
+              <p className="text-sm text-muted-foreground">{t("adminArtistRequestsToggleDesc")}</p>
+            </div>
+            <Switch checked={artistReqEnabled} disabled={roleReqLoading} onCheckedChange={(v) => toggleRoleRequests("artist_requests_enabled", v)} />
+          </div>
+          <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg">
+            <div>
+              <Label className="text-base font-medium">{t("adminManagerRequestsToggle")}</Label>
+              <p className="text-sm text-muted-foreground">{t("adminManagerRequestsToggleDesc")}</p>
+            </div>
+            <Switch checked={managerReqEnabled} disabled={roleReqLoading} onCheckedChange={(v) => toggleRoleRequests("manager_requests_enabled", v)} />
           </div>
         </CardContent>
       </Card>
