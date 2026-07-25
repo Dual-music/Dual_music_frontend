@@ -212,13 +212,13 @@ const Profile = () => {
 
   /** Programme la suppression du compte (grâce 20 jours). */
   const handleRequestDeletion = async () => {
-    if (!window.confirm("Confirmer la suppression de ton compte ? Un délai de 20 jours te permettra de l'annuler avant l'effacement définitif.")) return;
+    if (!window.confirm(t("confirmDeleteAccount"))) return;
     try {
       await users.requestAccountDeletion();
-      toast({ title: "Suppression programmée", description: "Ton compte sera supprimé dans 20 jours. Tu peux annuler à tout moment d'ici là." });
+      toast({ title: t("deletionScheduledTitle"), description: t("deletionScheduledDesc") });
       void refreshMe();
     } catch (error: any) {
-      toast({ title: "Erreur", description: error.message, variant: "destructive" });
+      toast({ title: t("error"), description: error.message, variant: "destructive" });
     }
   };
 
@@ -226,10 +226,10 @@ const Profile = () => {
   const handleCancelDeletion = async () => {
     try {
       await users.cancelAccountDeletion();
-      toast({ title: "Suppression annulée", description: "Ton compte reste actif." });
+      toast({ title: t("deletionCancelledTitle"), description: t("deletionCancelledDesc") });
       void refreshMe();
     } catch (error: any) {
-      toast({ title: "Erreur", description: error.message, variant: "destructive" });
+      toast({ title: t("error"), description: error.message, variant: "destructive" });
     }
   };
 
@@ -448,7 +448,7 @@ const Profile = () => {
                       />
                     </div>
                     <div>
-                      <Label htmlFor="country">Pays</Label>
+                      <Label htmlFor="country">{t("country")}</Label>
                       <select
                         id="country"
                         value={countryCode}
@@ -461,7 +461,7 @@ const Profile = () => {
                       </select>
                     </div>
                     <div>
-                      <Label htmlFor="phone">Numéro de téléphone</Label>
+                      <Label htmlFor="phone">{t("phoneNumber")}</Label>
                       <Input
                         id="phone"
                         value={phone}
@@ -480,23 +480,23 @@ const Profile = () => {
 
                   {/* Zone sensible : suppression de compte (grâce 20 jours) */}
                   <div className="mt-6 pt-6 border-t border-destructive/40 space-y-3">
-                    <h3 className="font-semibold text-destructive">Supprimer mon compte</h3>
+                    <h3 className="font-semibold text-destructive">{t("deleteAccount")}</h3>
                     {(user as any)?.deletionScheduledAt ? (
                       <>
                         <p className="text-sm text-destructive">
-                          Suppression prévue le {new Date((user as any).deletionScheduledAt).toLocaleDateString()}. Tu peux encore l'annuler.
+                          {t("deletionScheduledFor")} {new Date((user as any).deletionScheduledAt).toLocaleDateString()}. {t("deletionCanStillCancel")}
                         </p>
                         <Button variant="outline" onClick={handleCancelDeletion}>
-                          Annuler la suppression
+                          {t("cancelDeletion")}
                         </Button>
                       </>
                     ) : (
                       <>
                         <p className="text-sm text-muted-foreground">
-                          Un délai de 20 jours te permet d'annuler avant l'effacement définitif.
+                          {t("deleteAccountHint")}
                         </p>
                         <Button variant="destructive" onClick={handleRequestDeletion}>
-                          Supprimer mon compte
+                          {t("deleteAccount")}
                         </Button>
                       </>
                     )}
