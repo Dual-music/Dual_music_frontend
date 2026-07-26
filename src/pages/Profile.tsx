@@ -750,7 +750,7 @@ const Profile = () => {
                     <LifestyleVideoUpload 
                       artistId={profile?.id || ""} 
                       artistName={fullName || t("profileFollowedDefaultName")}
-                      onSuccess={loadProfile}
+                      onSuccess={() => { void refreshMe(); }}
                     />
                   </Card>
 
