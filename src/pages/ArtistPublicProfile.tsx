@@ -187,10 +187,32 @@ const ArtistPublicProfile = () => {
   const getSocialIcon = (platform: string) => {
     switch (platform) {
       case "instagram": return <Instagram className="w-5 h-5" />;
-      case "twitter": return <Twitter className="w-5 h-5" />;
+      case "twitter":
+      case "x": return <Twitter className="w-5 h-5" />;
       case "youtube": return <Youtube className="w-5 h-5" />;
       case "facebook": return <Facebook className="w-5 h-5" />;
       default: return <Music className="w-5 h-5" />;
+    }
+  };
+
+  /**
+   * Normalise une valeur de lien social en URL absolue cliquable.
+   * Les artistes saisissent parfois un `@handle` (ou un nom d'utilisateur nu) plutôt
+   * qu'une URL complète — sans ce préfixe, le `href` serait relatif et cassé.
+   */
+  const normalizeSocialUrl = (platform: string, value: string): string => {
+    const v = value.trim();
+    if (/^https?:\/\//i.test(v)) return v;
+    const handle = v.replace(/^@/, "");
+    switch (platform) {
+      case "instagram": return `https://instagram.com/${handle}`;
+      case "tiktok": return `https://tiktok.com/@${handle}`;
+      case "twitter":
+      case "x": return `https://x.com/${handle}`;
+      case "youtube": return `https://youtube.com/@${handle}`;
+      case "facebook": return `https://facebook.com/${handle}`;
+      case "spotify": return `https://open.spotify.com/${handle}`;
+      default: return `https://${v}`;
     }
   };
 
@@ -302,9 +324,11 @@ const ArtistPublicProfile = () => {
                 {Object.entries(profile.social_links).map(([platform, url]) => url && (
                   <a
                     key={platform}
-                    href={url}
+                    href={normalizeSocialUrl(platform, String(url))}
                     target="_blank"
                     rel="noopener noreferrer"
+                    title={platform.charAt(0).toUpperCase() + platform.slice(1)}
+                    aria-label={platform}
                     className="p-2 rounded-full bg-card hover:bg-primary/20 transition-colors"
                   >
                     {getSocialIcon(platform)}

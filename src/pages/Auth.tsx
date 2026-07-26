@@ -448,10 +448,29 @@ const Auth = () => {
                 )}
               </div>
 
+              {/* Acceptation obligatoire des documents légaux (cliquables) */}
+              <div className="flex items-start gap-2">
+                <Checkbox
+                  id="accept-terms"
+                  checked={acceptedTerms}
+                  onCheckedChange={(v) => setAcceptedTerms(v === true)}
+                  className="mt-0.5"
+                />
+                <Label htmlFor="accept-terms" className="text-sm text-muted-foreground font-normal leading-snug">
+                  {t("iAcceptThe")}{" "}
+                  <Link to="/terms" target="_blank" className="text-primary hover:underline">
+                    {t("termsTitle")}
+                  </Link>{" "}·{" "}
+                  <Link to="/privacy" target="_blank" className="text-primary hover:underline">
+                    {t("privacyTitle")}
+                  </Link>
+                </Label>
+              </div>
+
               <Button
                 type="submit"
                 className="w-full bg-gradient-primary hover:shadow-glow transition-all"
-                disabled={loading || !isSignupEmailValid || signupPassword.length < 6 || signupPassword !== signupConfirmPassword}
+                disabled={loading || !isSignupEmailValid || signupPassword.length < 6 || signupPassword !== signupConfirmPassword || !acceptedTerms}
               >
                 {loading ? t("creatingAccount") : "Continuer"}
               </Button>
