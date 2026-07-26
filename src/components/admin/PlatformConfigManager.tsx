@@ -22,7 +22,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Settings, Coins, CreditCard, Save, Network, RefreshCcw, Loader2, Wallet, Banknote, Smartphone, Plus, Trash2, AlertTriangle } from "lucide-react";
+import { Settings, Coins, CreditCard, Save, Network, RefreshCcw, Loader2, Wallet, Banknote, Smartphone, Plus, Trash2, AlertTriangle, HardDrive, Cloud, CheckCircle2, AlertCircle } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -86,6 +87,7 @@ const PlatformConfigManager = () => {
   const [proxyLoading, setProxyLoading] = useState(false);
   const [proxyCheckLoading, setProxyCheckLoading] = useState(false);
   const [proxyCheck, setProxyCheck] = useState<{ direct_egress_ip?: string; proxy_egress_ip?: string } | null>(null);
+  const [storage, setStorage] = useState<admin.StorageInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -158,6 +160,12 @@ const PlatformConfigManager = () => {
       }
     } catch {
       /* keep defaults on read failure */
+    }
+    // Storage status (read-only, informational). Best-effort — never blocks the form.
+    try {
+      setStorage(await admin.getStorageInfo());
+    } catch {
+      /* storage status unavailable — badge simply hidden */
     }
     setLoading(false);
   };
@@ -262,6 +270,42 @@ const PlatformConfigManager = () => {
         </h2>
         <p className="text-sm text-muted-foreground">{t("adminPlatformConfigDesc")}</p>
       </div>
+
+      {/* Storage status (read-only — chosen at deploy time via STORAGE_DRIVER) */}
+      {storage && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              {storage.driver === "s3" ? <Cloud className="w-5 h-5" /> : <HardDrive className="w-5 h-5" />}
+              {t("adminStorageTitle")}
+            </CardTitle>
+            <CardDescription>{t("adminStorageDesc")}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col gap-3 p-4 bg-muted/30 rounded-lg sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2">
+                <Label className="text-base font-medium">{t("adminStorageMode")}</Label>
+                <Badge variant="secondary">
+                  {storage.driver === "s3" ? t("adminStorageModeCloud") : t("adminStorageModeLocal")}
+                </Badge>
+                {storage.configured ? (
+                  <Badge variant="outline" className="border-green-500/40 text-green-600 dark:text-green-400">
+                    <CheckCircle2 className="w-3.5 h-3.5 mr-1" />{t("adminStorageConfigured")}
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="border-amber-500/40 text-amber-600 dark:text-amber-400">
+                    <AlertCircle className="w-3.5 h-3.5 mr-1" />{t("adminStorageNotConfigured")}
+                  </Badge>
+                )}
+              </div>
+              {storage.publicBaseUrl && (
+                <code className="text-xs font-mono text-muted-foreground break-all">{storage.publicBaseUrl}</code>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">{t("adminStorageReadOnlyHint")}</p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Welcome Credits */}
       <Card>

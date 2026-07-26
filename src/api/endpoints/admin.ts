@@ -14,6 +14,20 @@ export function getStats(): Promise<Record<string, unknown>> {
   return http.get("/admin/stats");
 }
 
+export interface StorageInfo {
+  /** Active storage driver, chosen at deploy time (`STORAGE_DRIVER`). */
+  driver: "s3" | "local";
+  /** Whether the active driver is fully configured (R2/S3 credentials present). */
+  configured: boolean;
+  /** Public base URL media is served from. */
+  publicBaseUrl: string;
+}
+
+/** GET /admin/system/storage — read-only media-storage status. */
+export function getStorageInfo(): Promise<StorageInfo> {
+  return http.get<StorageInfo>("/admin/system/storage");
+}
+
 /** GET /admin/logs */
 export function getLogs(query?: Record<string, string | number | undefined>): Promise<Array<Record<string, unknown>>> {
   return http.get("/admin/logs", { query });

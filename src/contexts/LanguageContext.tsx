@@ -400,6 +400,7 @@ const translations: Record<Language, Record<string, string>> = {
     
     // Terms
     termsTitle: "Conditions d'utilisation",
+    iAcceptThe: "J'accepte les",
     lastUpdated: "Dernière mise à jour",
     termsSection1Title: "Acceptation des conditions",
     termsSection1Content: "En accédant à Dual Music, vous acceptez ces conditions. Si vous n'acceptez pas ces conditions, veuillez ne pas utiliser notre service.",
@@ -1251,6 +1252,15 @@ const translations: Record<Language, Record<string, string>> = {
     // PlatformConfigManager
     adminPlatformConfigTitle: "Configuration de la Plateforme",
     adminPlatformConfigDesc: "Paramètres globaux de la plateforme",
+    // Stockage des médias (lecture seule)
+    adminStorageTitle: "Stockage des médias",
+    adminStorageDesc: "Où sont stockés les fichiers uploadés (avatars, images, vidéos). Défini au déploiement.",
+    adminStorageMode: "Mode",
+    adminStorageModeCloud: "Cloudflare R2 (externe)",
+    adminStorageModeLocal: "Disque du backend (local)",
+    adminStorageConfigured: "Configuré",
+    adminStorageNotConfigured: "Non configuré",
+    adminStorageReadOnlyHint: "Lecture seule : le mode de stockage se change via la variable STORAGE_DRIVER du serveur (pas à chaud, pour ne pas casser les médias existants).",
     adminWelcomeCreditsTitle: "Crédits de bienvenue",
     adminWelcomeCreditsDesc: "Définissez le nombre de crédits offerts aux nouveaux inscrits",
     adminWelcomeCreditsAmount: "Nombre de crédits",
@@ -3064,6 +3074,7 @@ const translations: Record<Language, Record<string, string>> = {
     
     // Terms
     termsTitle: "Terms of Use",
+    iAcceptThe: "I accept the",
     lastUpdated: "Last updated",
     termsSection1Title: "Acceptance of Terms",
     termsSection1Content: "By accessing Dual Music, you agree to these terms. If you do not accept these terms, please do not use our service.",
@@ -3916,6 +3927,15 @@ const translations: Record<Language, Record<string, string>> = {
     // PlatformConfigManager
     adminPlatformConfigTitle: "Platform Configuration",
     adminPlatformConfigDesc: "Global platform settings",
+    // Media storage (read-only)
+    adminStorageTitle: "Media storage",
+    adminStorageDesc: "Where uploaded files (avatars, images, videos) are stored. Set at deployment time.",
+    adminStorageMode: "Mode",
+    adminStorageModeCloud: "Cloudflare R2 (external)",
+    adminStorageModeLocal: "Backend disk (local)",
+    adminStorageConfigured: "Configured",
+    adminStorageNotConfigured: "Not configured",
+    adminStorageReadOnlyHint: "Read-only: the storage mode is changed via the server's STORAGE_DRIVER variable (not at runtime, to avoid orphaning existing media).",
     adminWelcomeCreditsTitle: "Welcome Credits",
     adminWelcomeCreditsDesc: "Set the number of credits given to new users",
     adminWelcomeCreditsAmount: "Number of credits",
