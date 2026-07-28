@@ -93,6 +93,8 @@ export const WebRTCHost = ({
   const [isMicOn, setIsMicOn] = useState(true);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const notifiedPeersRef = useRef<Set<string>>(new Set());
+  // Dernier message d'erreur média (getUserMedia) remonté par useLiveKit — sert au toast précis.
+  const lastMediaErrorRef = useRef<string | null>(null);
 
   const {
     localStream,
@@ -125,8 +127,9 @@ export const WebRTCHost = ({
       console.log("Viewer left:", peerId);
     },
     onError: (error) => {
-      // Silent: do not surface low-level connection errors to viewers/hosts.
-      // The UI already shows a "connecting" state and will reconnect automatically.
+      // Silent pour les erreurs de connexion (UI déjà en "connecting" + reconnexion auto),
+      // mais on mémorise le dernier message (utilisé par le toast d'échec caméra/micro).
+      lastMediaErrorRef.current = error;
       console.warn("[WebRTCHost] LiveKit error:", error);
     },
   });
@@ -167,6 +170,7 @@ export const WebRTCHost = ({
   const startStreaming = useCallback(async () => {
     if (isStarting || isStreaming) return;
     setIsStarting(true);
+    lastMediaErrorRef.current = null;
     try {
       // 1. Connect to the room FIRST
       await joinRoom();
@@ -176,7 +180,7 @@ export const WebRTCHost = ({
       if (!stream) {
         toast({
           title: "Erreur",
-          description: "Impossible d'accéder à la caméra/microphone.",
+          description: lastMediaErrorRef.current || "Impossible d'accéder à la caméra/microphone.",
           variant: "destructive",
         });
         return;

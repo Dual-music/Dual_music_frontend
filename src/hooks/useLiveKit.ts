@@ -176,7 +176,18 @@ export const useLiveKit = ({
       return stream;
     } catch (err: any) {
       console.error("Error accessing media devices:", err);
-      onErrorRef.current?.(err.message || "Impossible d'accéder à la caméra/microphone");
+      // Message précis selon le type d'échec getUserMedia (le SDK LiveKit propage
+      // le DOMException sous-jacent via `err.name`).
+      const name = err?.name || "";
+      const msg =
+        name === "NotAllowedError" || name === "SecurityError"
+          ? "Autorisez la caméra/micro dans votre navigateur"
+          : name === "NotReadableError" || name === "AbortError"
+            ? "Caméra déjà utilisée par une autre appli/onglet"
+            : name === "NotFoundError" || name === "OverconstrainedError"
+              ? "Aucune caméra détectée"
+              : (err?.message || "Impossible d'accéder à la caméra/microphone");
+      onErrorRef.current?.(msg);
       return null;
     }
   }, [buildLocalStream]);
