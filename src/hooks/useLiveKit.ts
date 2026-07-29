@@ -85,7 +85,10 @@ export const useLiveKit = ({
   const getToken = useCallback(async (): Promise<{ token: string; url: string } | null> => {
     try {
       const data = await livekit.getToken({
+        // Le backend attend `roomName` (Joi .required()) ; `room` seul était retiré par
+        // stripUnknown → 422. On envoie `roomName` (le spectateur/host web peut rejoindre).
         room: roomName,
+        roomName,
         identity: participantName || userId,
         isHost,
         participantName: participantName || userId,
