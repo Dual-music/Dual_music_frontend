@@ -31,12 +31,17 @@ export function useEventChat(kind: ChatKind, eventId: string | null | undefined)
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Le backend renvoie l'auteur sous la clé `author` (REST + temps réel). Les
+  // consommateurs (LiveStream, duels…) lisent `profile` → on normalise ici.
+  const normalize = (m: ChatMessage): ChatMessage =>
+    m.profile ? m : { ...m, profile: (m as { author?: ChatMessage["profile"] }).author ?? null };
+
   const load = useCallback(async () => {
     if (!eventId) return;
     setLoading(true);
     try {
       const rows = (await chatApi.listMessages(kind, eventId, { limit: 100 })) as unknown as ChatMessage[];
-      setMessages(rows || []);
+      setMessages((rows || []).map(normalize));
     } catch {
       setMessages([]);
     } finally {
@@ -50,13 +55,14 @@ export function useEventChat(kind: ChatKind, eventId: string | null | undefined)
 
   // Realtime: append broadcast messages, de-duping by id.
   useRoomEvent<ChatMessage>("/chat", kind, eventId, "message", (msg) => {
-    setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+    const m = normalize(msg);
+    setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
   });
 
   const send = useCallback(
     async (message: string, parentId?: string | null) => {
       if (!eventId) return;
-      const created = (await chatApi.postMessage(kind, eventId, { message, parentId })) as unknown as ChatMessage;
+      const created = normalize((await chatApi.postMessage(kind, eventId, { message, parentId })) as unknown as ChatMessage);
       // Optimistic append (realtime echo is de-duped by id).
       setMessages((prev) => (prev.some((m) => m.id === created.id) ? prev : [...prev, created]));
       return created;
