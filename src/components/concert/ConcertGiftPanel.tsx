@@ -73,7 +73,15 @@ const ConcertGiftPanel = ({
     const fetchUserGifts = async () => {
       if (user) {
         const inv = (await giftsApi.myInventory()) as Array<Record<string, any>>;
-        setGifts((inv || []).map((ug) => ({ ...(ug.virtual_gifts ?? ug), quantity: ug.quantity ?? 0 })));
+        // L'endpoint /gifts/inventory renvoie des lignes PLATES { gift_id, name, price, image_url, quantity }
+        // (pas de `id` ni de `virtual_gifts`). Sans normaliser `id: gift_id`, les <SelectItem value={undefined}>
+        // rendent la sélection impossible → l'envoi échoue avec « sélectionnez un cadeau ».
+        setGifts(
+          (inv || []).map((ug) => {
+            const g = ug.virtual_gifts ?? ug;
+            return { ...g, id: g.id ?? ug.gift_id, quantity: ug.quantity ?? 0 };
+          }),
+        );
       } else {
         const list = await giftsApi.listGifts();
         setGifts((list || []).map((g) => ({ ...g, quantity: 0 })));
