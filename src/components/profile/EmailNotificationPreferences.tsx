@@ -82,6 +82,8 @@ export const EmailNotificationPreferences = ({ userRoles }: EmailNotificationPre
           email_votes: data.email_votes, email_requests: data.email_requests, email_assignments: data.email_assignments,
           email_system: data.email_system, email_lives: data.email_lives,
         });
+        // Opt-out explicite de la préférence push → reflète OFF même si le navigateur est abonné.
+        if (data.push_enabled === false) setPushEnabled(false);
       } catch {
         /* keep defaults on failure */
       }
@@ -134,6 +136,8 @@ export const EmailNotificationPreferences = ({ userRoles }: EmailNotificationPre
             await notifications.subscribePush({ endpoint: sub.endpoint, p256dh: subJson.keys?.p256dh || "", auth: subJson.keys?.auth || "" });
           }
           setPushEnabled(true);
+          // Persiste la préférence push (respectée par notifyUser, comme sur mobile).
+          await notifications.setEmailPreferences({ ...prefs, push_enabled: true } as any).catch(() => {});
           toast({ title: t("profilePushActivated"), description: t("profilePushActivatedDesc") });
         } else {
           toast({ title: t("profilePushPermDenied"), description: t("profilePushPermDeniedDesc"), variant: "destructive" });
@@ -144,6 +148,8 @@ export const EmailNotificationPreferences = ({ userRoles }: EmailNotificationPre
         if (sub) await sub.unsubscribe();
         if (userId) await notifications.unsubscribePush({ endpoint: sub?.endpoint });
         setPushEnabled(false);
+        // Opt-out : la préférence push est désactivée (respectée par notifyUser).
+        await notifications.setEmailPreferences({ ...prefs, push_enabled: false } as any).catch(() => {});
         toast({ title: t("profilePushDeactivated"), description: t("profilePushDeactivatedDesc") });
       }
     } catch (err: any) {
