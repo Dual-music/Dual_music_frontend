@@ -80,6 +80,9 @@ export const ManagerValidationForm = ({ userId, existingRequest, onRequestSubmit
           <CardTitle className="flex items-center gap-2">
             {existingRequest.status === "pending" ? <><Clock className="w-5 h-5 text-yellow-500" />{t("mgrValidPending")}</> : existingRequest.status === "approved" ? <><CheckCircle className="w-5 h-5 text-green-500" />{t("mgrValidApproved")}</> : <><Clock className="w-5 h-5 text-red-500" />{t("mgrValidRejected")}</>}
           </CardTitle>
+          {existingRequest.status === "pending" && (
+            <CardDescription>{t("mgrValidPendingDesc")}</CardDescription>
+          )}
         </CardHeader>
       </Card>
     );

@@ -23,7 +23,7 @@
  * @see     src/components/profile/ProfileSidebar.tsx
  * @see     src/components/artist/WithdrawalForm.tsx
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getBalance } from "@/api/endpoints/wallet";
 import { Button } from "@/components/ui/button";
@@ -76,6 +76,7 @@ import RewardMeetingCard from "@/components/profile/RewardMeetingCard";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import * as users from "@/api/endpoints/users";
+import * as creators from "@/api/endpoints/creators";
 import { useTransactionNotifications } from "@/hooks/useTransactionNotifications";
 import { useUiPreferences } from "@/hooks/useUiPreferences";
 import { formatTz } from "@/lib/datetime";
@@ -137,6 +138,9 @@ const Profile = () => {
   const [fanStats, setFanStats] = useState<FanStats>({ totalVotesCast: 0, totalGiftsSent: 0, totalTickets: 0 });
   const [myDuels, setMyDuels] = useState<Duel[]>([]);
   const [managedDuels, setManagedDuels] = useState<Duel[]>([]);
+  // Ma demande de rôle la plus récente (masque le formulaire tant qu'elle est en attente/traitée).
+  const [artistRequest, setArtistRequest] = useState<{ id: string; status: string; description?: string } | null>(null);
+  const [managerRequest, setManagerRequest] = useState<{ id: string; status: string } | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [activeTab, setActiveTab] = useState("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -180,6 +184,34 @@ const Profile = () => {
       setLoading(false);
     })();
   }, [user]);
+
+  /**
+   * Charge ma demande de rôle en cours/traitée (artiste + manager). Sert à masquer le
+   * formulaire tant qu'une demande est en attente — comme sur mobile — pour éviter les
+   * doublons. On retient la plus récente de chaque type.
+   */
+  const loadRoleRequests = useCallback(async () => {
+    if (!user) return;
+    const latest = (rows: Array<Record<string, unknown>>) =>
+      [...rows].sort(
+        (a, b) => new Date(String(b.created_at)).getTime() - new Date(String(a.created_at)).getTime(),
+      )[0];
+    try {
+      const [artistRows, managerRows] = await Promise.all([
+        creators.myArtistRequests().catch(() => []),
+        creators.myManagerRequests().catch(() => []),
+      ]);
+      // On ne masque le formulaire que si la demande est en attente ou approuvée. Après un
+      // refus, l'utilisateur peut re-postuler (le backend n'interdit que les doublons `pending`).
+      const blocks = (s: unknown) => s === "pending" || s === "approved";
+      const a = latest((artistRows as any[]) || []);
+      const m = latest((managerRows as any[]) || []);
+      setArtistRequest(a && blocks(a.status) ? { id: String(a.id), status: String(a.status), description: a.description as string } : null);
+      setManagerRequest(m && blocks(m.status) ? { id: String(m.id), status: String(m.status) } : null);
+    } catch { /* best-effort */ }
+  }, [user]);
+
+  useEffect(() => { void loadRoleRequests(); }, [loadRoleRequests]);
 
   const handleUpdateProfile = async () => {
     if (!profile) return;
@@ -614,11 +646,19 @@ const Profile = () => {
                 </TabsContent>
 
                 <TabsContent value="become-artist" className="mt-6">
-                  <ArtistValidationForm userId={profile?.id || ""} />
+                  <ArtistValidationForm
+                    userId={profile?.id || ""}
+                    existingRequest={artistRequest}
+                    onRequestSubmitted={() => { void loadRoleRequests(); }}
+                  />
                 </TabsContent>
 
                 <TabsContent value="become-manager" className="mt-6">
-                  <ManagerValidationForm userId={profile?.id || ""} />
+                  <ManagerValidationForm
+                    userId={profile?.id || ""}
+                    existingRequest={managerRequest}
+                    onRequestSubmitted={() => { void loadRoleRequests(); }}
+                  />
                 </TabsContent>
 
                 <TabsContent value="notifications" className="mt-6 space-y-6">

@@ -1665,6 +1665,7 @@ const translations: Record<Language, Record<string, string>> = {
     mgrValidSubmitting: "Envoi...",
     mgrValidSubmitBtn: "Soumettre",
     mgrValidPending: "Demande en cours",
+    mgrValidPendingDesc: "Votre demande pour devenir manager est en attente de validation par un administrateur.",
     mgrValidApproved: "Statut validé",
     mgrValidRejected: "Demande rejetée",
 
@@ -4340,6 +4341,7 @@ const translations: Record<Language, Record<string, string>> = {
     mgrValidSubmitting: "Submitting...",
     mgrValidSubmitBtn: "Submit",
     mgrValidPending: "Request in progress",
+    mgrValidPendingDesc: "Your request to become a manager is awaiting validation by an administrator.",
     mgrValidApproved: "Status validated",
     mgrValidRejected: "Request rejected",
 
