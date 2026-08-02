@@ -92,6 +92,16 @@ const CompetitionLive = () => {
 
   const videoContainerRef = useRef<HTMLDivElement>(null);
   const seenGiftIdsRef = useRef<Set<string>>(new Set());
+  // Dédup cross-canal (peer web ↔ event serveur `gift`) par signature `expéditeur:prix`.
+  const giftSigRef = useRef<Map<string, number>>(new Map());
+  const claimGiftSig = (sig: string): boolean => {
+    const now = Date.now();
+    const map = giftSigRef.current;
+    for (const [k, ts] of map) if (now - ts > 5000) map.delete(k);
+    if (map.has(sig)) return false;
+    map.set(sig, now);
+    return true;
+  };
 
   const isManager = user?.id === comp?.manager_id;
   const isAdmin = roles.includes("admin");
@@ -181,6 +191,8 @@ const CompetitionLive = () => {
       seenGiftIdsRef.current.add(eventId);
       setTimeout(() => seenGiftIdsRef.current.delete(eventId), 10000);
     }
+    // Réserve la signature partagée : bloque l'event serveur `gift` correspondant.
+    if (!claimGiftSig(`${p.user_id ?? p.from_user_id ?? ""}:${Math.round(Number(p.price) || 0)}`)) return;
     setActiveGiftAnim({
       eventId: eventId || crypto.randomUUID(),
       giftName: p.gift_name || p.giftName || "Cadeau",
@@ -190,6 +202,38 @@ const CompetitionLive = () => {
       price: Number(p.price) || 0,
     });
   });
+
+  // Bridge mobile → web : cadeau de compétition envoyé depuis le MOBILE (backend émet `gift`
+  // vers la room compétition). On l'écoute ici, en ignorant ses propres envois et en
+  // dédupliquant via la signature partagée avec le canal peer.
+  useRoomEvent<{ to_user_id?: string; from_user_id?: string; value?: number }>(
+    "/live",
+    "competition",
+    id ?? null,
+    "gift",
+    async (p) => {
+      const from = p?.from_user_id ?? "";
+      if (!from || from === user?.id) return;
+      const price = Math.round(Number(p?.value) || 0);
+      if (!claimGiftSig(`${from}:${price}`)) return;
+      let senderName = t("userDefault") || "Fan";
+      try {
+        const sp = await getDisplayProfiles([from]);
+        senderName = (sp as any[])?.[0]?.full_name || senderName;
+      } catch {
+        /* fallback sur le libellé générique */
+      }
+      const recipientName = (p?.to_user_id && profiles[p.to_user_id]?.full_name) || (t("recipientLabel") || "Artiste");
+      setActiveGiftAnim({
+        eventId: crypto.randomUUID(),
+        giftName: "Cadeau",
+        giftImage: "🎁",
+        senderName,
+        recipientName,
+        price,
+      });
+    },
+  );
 
   // --- Auto-fullscreen on mobile entry ------------------------------------
   useEffect(() => {
