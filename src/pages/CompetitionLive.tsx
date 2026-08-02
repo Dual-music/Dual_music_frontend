@@ -48,7 +48,7 @@ import CompetitionLeaderboard from "@/components/competition/CompetitionLeaderbo
 import CompetitionPerformerTimer from "@/components/competition/CompetitionPerformerTimer";
 import PerformerController from "@/components/competition/PerformerController";
 import CompetitionFinalRanking from "@/components/competition/CompetitionFinalRanking";
-import CompetitionRecordingControls from "@/components/competition/CompetitionRecordingControls";
+import { RecordingButton } from "@/components/recording/RecordingButton";
 import { BannedAccessGate } from "@/components/streaming/BannedAccessGate";
 import SponsorAdBroadcast from "@/components/sponsor/SponsorAdBroadcast";
 import TopDonorBubble from "@/components/animations/TopDonorBubble";
@@ -381,12 +381,7 @@ const CompetitionLive = () => {
   ) : null;
 
   const recordingContent = isManager ? (
-    <CompetitionRecordingControls
-      stream={hostStream}
-      competitionId={comp.id}
-      competitionTitle={comp.title}
-      userId={user?.id || ""}
-    />
+    <RecordingButton sourceType="competition" sourceId={comp.id} />
   ) : null;
 
   // Sponsor ad: mount for the manager (with trigger UI). Viewers get their own

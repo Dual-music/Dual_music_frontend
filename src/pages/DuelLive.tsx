@@ -42,7 +42,7 @@ import { ThreadedChat } from "@/components/chat/ThreadedChat";
 import { QuickTip } from "@/components/duel/QuickTip";
 import { GiftLeaderboard } from "@/components/duel/GiftLeaderboard";
 
-import { ConcertRecordingControls } from "@/components/concert/ConcertRecordingControls";
+import { RecordingButton } from "@/components/recording/RecordingButton";
 import { FloatingHearts, useBroadcastHearts, formatLikeCount } from "@/components/animations/FloatingHearts";
 import { FloatingEmojis, EmojiReactionBar, useBroadcastEmojis } from "@/components/animations/FloatingEmojis";
 import { TopDonorBubble } from "@/components/animations/TopDonorBubble";
@@ -1025,17 +1025,7 @@ const DuelLive = () => {
               <VotePanel duelId={id!} artist1Id={duel.artist1_id} artist2Id={duel.artist2_id} />
             }
             recordingContent={
-              isManager && hostStream ? (
-                <ConcertRecordingControls
-                  stream={hostStream}
-                  concertId={id!}
-                  userId={currentUserId!}
-                  isArtistConcert={false}
-                  isDuel={true}
-                  duelTitle={`Duel: ${profiles.artist1?.full_name || 'A1'} vs ${profiles.artist2?.full_name || 'A2'}`}
-                  onRecordingSaved={() => {}}
-                />
-              ) : undefined
+              isManager ? <RecordingButton sourceType="duel" sourceId={id!} /> : undefined
             }
             extraControls={
               (!isManager && !hostStream) ? (
@@ -1340,7 +1330,7 @@ const DuelLive = () => {
             <div className="bg-card rounded-lg p-6 border border-border">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-xl font-bold">{t("liveVotesTitle")}</h3>
-                {isManager && hostStream && <ConcertRecordingControls stream={hostStream} concertId={id!} userId={currentUserId!} isArtistConcert={false} isDuel={true} duelTitle={`Duel: ${profiles.artist1?.full_name || 'A1'} vs ${profiles.artist2?.full_name || 'A2'}`} onRecordingSaved={() => {}} />}
+                {isManager && <RecordingButton sourceType="duel" sourceId={id!} />}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="text-center"><p className="text-3xl font-bold bg-gradient-primary bg-clip-text text-transparent">{votes.artist1}</p><p className="text-muted-foreground">{profiles.artist1?.full_name || "Artiste 1"}</p></div>

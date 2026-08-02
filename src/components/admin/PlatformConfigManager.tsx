@@ -22,7 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Settings, Coins, CreditCard, Save, Network, RefreshCcw, Loader2, Wallet, Banknote, Smartphone, Plus, Trash2, AlertTriangle, HardDrive, Cloud, CheckCircle2, AlertCircle } from "lucide-react";
+import { Settings, Coins, CreditCard, Save, Network, RefreshCcw, Loader2, Wallet, Banknote, Smartphone, Plus, Trash2, AlertTriangle, HardDrive, Cloud, CheckCircle2, AlertCircle, Video } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -69,6 +69,17 @@ const DEFAULT_LIVE_REPORT_CONFIG: LiveReportConfig = {
   stop_percentage: 75,
 };
 
+/** Enregistrement des directs (replays) par type : off | auto | manual. */
+type RecordingMode = "off" | "auto" | "manual";
+interface RecordingConfig {
+  live: RecordingMode;
+  duel: RecordingMode;
+  concert: RecordingMode;
+  competition: RecordingMode;
+}
+const DEFAULT_RECORDING_CONFIG: RecordingConfig = { live: "off", duel: "off", concert: "off", competition: "off" };
+const normRecMode = (m: unknown): RecordingMode => (m === "auto" || m === "manual" ? m : "off");
+
 const PlatformConfigManager = () => {
   const { toast } = useToast();
   const { t } = useLanguage();
@@ -79,6 +90,7 @@ const PlatformConfigManager = () => {
   const [withdrawalCfg, setWithdrawalCfg] = useState<WithdrawalProvidersConfig>(DEFAULT_WD);
   const [payoutCfg, setPayoutCfg] = useState<PayoutConfig>(DEFAULT_PAYOUT_CONFIG);
   const [liveReportCfg, setLiveReportCfg] = useState<LiveReportConfig>(DEFAULT_LIVE_REPORT_CONFIG);
+  const [recordingCfg, setRecordingCfg] = useState<RecordingConfig>(DEFAULT_RECORDING_CONFIG);
 
   const [managerReqEnabled, setManagerReqEnabled] = useState<boolean>(true);
   const [artistReqEnabled, setArtistReqEnabled] = useState<boolean>(true);
@@ -156,6 +168,15 @@ const PlatformConfigManager = () => {
           enabled_competition: reportVal.enabled_competition ?? true,
           viewer_threshold: Number(reportVal.viewer_threshold ?? DEFAULT_LIVE_REPORT_CONFIG.viewer_threshold) || 5,
           stop_percentage: Number(reportVal.stop_percentage ?? DEFAULT_LIVE_REPORT_CONFIG.stop_percentage) || 75,
+        });
+      }
+      const recVal = settings["recording_config"] as Partial<RecordingConfig> | undefined;
+      if (recVal) {
+        setRecordingCfg({
+          live: normRecMode(recVal.live),
+          duel: normRecMode(recVal.duel),
+          concert: normRecMode(recVal.concert),
+          competition: normRecMode(recVal.competition),
         });
       }
     } catch {
@@ -251,6 +272,7 @@ const PlatformConfigManager = () => {
         updatePlatformSetting("withdrawal_providers_config", withdrawalJson),
         updatePlatformSetting("payout_config", payoutJson),
         updatePlatformSetting("live_report_config", liveReportJson),
+        updatePlatformSetting("recording_config", recordingCfg),
       ]);
       toast({ title: t("adminPlatformConfigSaved") });
     } catch (e) {
@@ -650,6 +672,41 @@ const PlatformConfigManager = () => {
               <p className="text-xs text-muted-foreground mt-1">Défaut : 75 %. Arrêt 5 min après franchissement.</p>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Recording configuration (replays) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Video className="w-5 h-5" /> Enregistrement des directs (replays)</CardTitle>
+          <CardDescription>
+            Pour chaque type d'événement, choisissez si les directs sont enregistrés : Désactivé,
+            Automatique (au passage en live), ou Manuel (l'hôte/manager lance l'enregistrement).
+            Nécessite l'egress serveur activé (LIVEKIT_EGRESS_ENABLED).
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {([
+            { key: "live" as const, label: "Lives spontanés" },
+            { key: "concert" as const, label: "Concerts" },
+            { key: "duel" as const, label: "Duels" },
+            { key: "competition" as const, label: "Compétitions" },
+          ]).map((row) => (
+            <div key={row.key} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
+              <Label className="text-base">{row.label}</Label>
+              <Select
+                value={recordingCfg[row.key]}
+                onValueChange={(v) => setRecordingCfg({ ...recordingCfg, [row.key]: v as RecordingMode })}
+              >
+                <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="off">Désactivé</SelectItem>
+                  <SelectItem value="auto">Automatique</SelectItem>
+                  <SelectItem value="manual">Manuel (hôte)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          ))}
         </CardContent>
       </Card>
 

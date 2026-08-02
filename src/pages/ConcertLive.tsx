@@ -43,7 +43,7 @@ import ConcertGiftPanel from "@/components/concert/ConcertGiftPanel";
 import { QuickTip } from "@/components/duel/QuickTip";
 import { GiftLeaderboard } from "@/components/duel/GiftLeaderboard";
 import { ConcertDurationTimer } from "@/components/concert/ConcertDurationTimer";
-import { ConcertRecordingControls } from "@/components/concert/ConcertRecordingControls";
+import { RecordingButton } from "@/components/recording/RecordingButton";
 import { WebRTCHost } from "@/components/concert/WebRTCHost";
 import { WebRTCViewer } from "@/components/concert/WebRTCViewer";
 import { FloatingHearts, useBroadcastHearts, formatLikeCount } from "@/components/animations/FloatingHearts";
@@ -387,15 +387,7 @@ const ConcertLive = () => {
             description={concert.description || undefined}
             timerContent={undefined}
             recordingContent={
-              isOrganizer && hostStream ? (
-                <ConcertRecordingControls
-                  stream={hostStream}
-                  concertId={id!}
-                  userId={currentUserId!}
-                  isArtistConcert={concert.is_artist_concert}
-                  onRecordingSaved={() => refetch()}
-                />
-              ) : undefined
+              isOrganizer ? <RecordingButton sourceType="concert" sourceId={id!} /> : undefined
             }
             isArtist={isOrganizer || false}
             artistControls={isOrganizer && hostStream && hostControls ? {
@@ -539,16 +531,8 @@ const ConcertLive = () => {
                   <EmojiReactionBar onReact={addEmoji} />
                 </div>
                 <div className="flex flex-wrap gap-2 items-center">
-                  {/* Recording controls for organizer */}
-                  {isOrganizer && hostStream && (
-                    <ConcertRecordingControls
-                      stream={hostStream}
-                      concertId={id!}
-                      userId={currentUserId!}
-                      isArtistConcert={concert.is_artist_concert}
-                      onRecordingSaved={() => refetch()}
-                    />
-                  )}
+                  {/* Enregistrement serveur pour l'organisateur (mode admin auto/manual) */}
+                  {isOrganizer && <RecordingButton sourceType="concert" sourceId={id!} />}
 
                   {/* Sponsor ad — viewer overlay always mounted; controls only for organizer */}
                   {id && ((concert as any).allows_sponsor_ads !== false) && (
