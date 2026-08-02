@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRoomBroadcast } from "@/realtime/useRoomBroadcast";
+import { useRoomEvent } from "@/realtime/useRoom";
 import * as sponsors from "@/api/endpoints/sponsors";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -68,6 +69,38 @@ export const SponsorAdBroadcast = ({ eventType, eventId, canTrigger }: Props) =>
   useEffect(() => {
     userRef.current = user?.id ?? null;
   }, [user]);
+
+  // Source de vérité serveur : le backend émet `sponsor:ad` (start/stop) à toute la room
+  // dès qu'un client lance/arrête une pub via l'API — y compris **depuis le mobile**. On l'écoute
+  // ici pour que TOUT ce qui se passe côté mobile soit automatiquement visible sur le web.
+  // (Le canal peer `sponsor-ads-<id>` reste pour la resync des arrivants tardifs entre web.)
+  const roomType = (eventType === "artist_concert" ? "concert" : eventType) as
+    | "duel"
+    | "concert"
+    | "competition";
+  useRoomEvent<{ action?: string; play_id?: string; ad?: AdVideo }>(
+    "/live",
+    roomType,
+    eventId || null,
+    "sponsor:ad",
+    (payload) => {
+      const p = payload ?? {};
+      if (p.action === "start" && p.ad) {
+        setActiveAd({
+          id: p.ad.id,
+          title: p.ad.title,
+          video_url: p.ad.video_url,
+          duration_seconds: p.ad.duration_seconds,
+          play_count: p.ad.play_count ?? 0,
+        });
+        setActivePlayId(p.play_id ?? null);
+      } else if (p.action === "stop") {
+        setActiveAd(null);
+        setActivePlayId(null);
+        setTriggererId(null);
+      }
+    },
+  );
 
   const fetchAds = async () => {
     if (!eventId) return [] as AdVideo[];
