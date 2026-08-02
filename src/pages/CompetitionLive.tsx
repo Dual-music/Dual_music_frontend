@@ -164,6 +164,12 @@ const CompetitionLive = () => {
     loadCandidates();
   });
 
+  // Bridge mobile → web : l'organisateur peut désigner le performeur depuis le mobile
+  // (backend émet `performer`) → on recharge la compétition pour rafraîchir le minuteur.
+  useRoomEvent("/live", "competition", id ?? null, "performer", () => {
+    loadComp();
+  });
+
   // --- Gift animation broadcast listener (ephemeral peer broadcast) --------
   // Kept channel name `room_comp-<id>`, event `gift_animation`, payload shape.
   useRoomBroadcast(id ? `room_comp-${id}` : null, (event, payload) => {

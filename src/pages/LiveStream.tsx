@@ -863,7 +863,7 @@ const LiveStream = () => {
                   onEmojiReact={addEmoji}
                   videoContainerRef={videoContainerRef as React.RefObject<HTMLElement>}
                   giftPanelContent={
-                    <ConcertGiftPanel concertId={id!} artistId={live.artist_id} artistName={live.artist_name} />
+                    <ConcertGiftPanel concertId={id!} artistId={live.artist_id} artistName={live.artist_name} roomType="live" />
                   }
                   leaderboardContent={<GiftLeaderboard liveId={id!} />}
                   title={live.title || "Live"}
@@ -1108,6 +1108,7 @@ const LiveStream = () => {
               concertId={id!}
               artistId={live.artist_id}
               artistName={live.artist_name}
+              roomType="live"
             />
             <QuickTip recipientIds={[{ id: live.artist_id, name: live.artist_name || "Artiste" }]} />
             {!isArtist && currentUserId && (

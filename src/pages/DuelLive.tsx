@@ -138,6 +138,21 @@ const DuelLive = () => {
   const { messages: duelChatRaw, send: sendDuelChat } = useEventChat("duel", isMobile ? (id ?? null) : null);
   const translationRef = useRef(t);
   const seenGiftEventIdsRef = useRef<Set<string>>(new Set());
+  // Dédup cross-canal (peer web ↔ event serveur `gift`) : le cadeau serveur n'a pas d'eventId,
+  // on déduplique donc par signature `expéditeur:prix`. Le premier chemin qui arrive gagne, ce qui
+  // évite toute double animation quand un cadeau web déclenche à la fois le peer ET l'event serveur.
+  const giftSigRef = useRef<Map<string, number>>(new Map());
+  const claimGiftSig = useCallback((sig: string): boolean => {
+    const now = Date.now();
+    const map = giftSigRef.current;
+    for (const [k, ts] of map) if (now - ts > 5000) map.delete(k);
+    if (map.has(sig)) return false;
+    map.set(sig, now);
+    return true;
+  }, []);
+  // Dernier vainqueur déjà affiché (via bannière) — évite de ré-afficher à chaque tick `status`
+  // et après un rejet manuel.
+  const shownWinnerIdRef = useRef<string | null>(null);
   const giftContextRef = useRef<{
     artist1Id: string | null;
     artist2Id: string | null;
@@ -284,6 +299,9 @@ const DuelLive = () => {
       seenGiftEventIdsRef.current.add(eventId);
       setTimeout(() => seenGiftEventIdsRef.current.delete(eventId), 10000);
     }
+    // Réserve la signature partagée : bloque l'event serveur `gift` correspondant (même cadeau).
+    const peerSig = `${payload.user_id ?? payload.from_user_id}:${Math.round(Number(payload.price) || 0)}`;
+    if (!claimGiftSig(peerSig)) return;
 
     const giftId = payload.gift_id ?? payload.giftId;
     const senderId = payload.user_id ?? payload.from_user_id;
@@ -336,7 +354,7 @@ const DuelLive = () => {
       recipientName: recipientDisplayName,
       price: Number.isNaN(giftPrice) ? 0 : giftPrice,
     });
-  }, [triggerAnimation]);
+  }, [triggerAnimation, claimGiftSig]);
 
   // Gift animation broadcast (room_<roomId>) — shared by all clients in the duel room.
   const { broadcast: broadcastGift } = useRoomBroadcast(giftChannelTopic, (event, payload) => {
@@ -350,6 +368,8 @@ const DuelLive = () => {
     // Mark as seen immediately so the self-broadcast doesn't duplicate
     seenGiftEventIdsRef.current.add(eventId);
     setTimeout(() => seenGiftEventIdsRef.current.delete(eventId), 10000);
+    // Réserve aussi la signature : bloque l'event serveur `gift` renvoyé à l'expéditeur.
+    if (currentUserId) claimGiftSig(`${currentUserId}:${Math.round(Number(payload.price) || 0)}`);
 
     // Show animation locally for the sender IMMEDIATELY (no async wait)
     const giftPrice = Number(payload.price) || 0;
@@ -364,7 +384,7 @@ const DuelLive = () => {
 
     // Relay to the other peers (sender is excluded — already shown locally above).
     broadcastGift("gift_animation", payload);
-  }, [triggerAnimation, broadcastGift]);
+  }, [triggerAnimation, broadcastGift, currentUserId, claimGiftSig]);
 
   // Tick countdown (persistent from DB: current_timer_ends_at)
   useEffect(() => {
@@ -547,6 +567,71 @@ const DuelLive = () => {
   useRoomEvent("/live", "duel", id ?? null, "vote", () => {
     if (duel) fetchVotes(duel.artist1_id, duel.artist2_id);
   });
+
+  // ── Bridge mobile → web : le backend émet des events SERVEUR pour toute action (y compris
+  // depuis le mobile). On les écoute ici, avec dédup, pour que tout soit visible sur le web. ──
+
+  // Cadeau venant du serveur (souvent envoyé depuis le mobile). On ignore ses propres envois
+  // (déjà affichés en local) et on déduplique via la signature partagée avec le canal peer.
+  useRoomEvent<{ to_user_id?: string; from_user_id?: string; value?: number }>(
+    "/live",
+    "duel",
+    id ?? null,
+    "gift",
+    async (p) => {
+      const from = p?.from_user_id ?? "";
+      if (!from || from === currentUserId) return;
+      const price = Math.round(Number(p?.value) || 0);
+      if (!claimGiftSig(`${from}:${price}`)) return;
+      let senderName = translationRef.current("userDefault");
+      try {
+        const sp = await getDisplayProfiles([from]);
+        senderName = (sp as any[])?.[0]?.full_name || senderName;
+      } catch {
+        /* fallback sur le libellé générique */
+      }
+      const ctx = giftContextRef.current;
+      const rid = p?.to_user_id;
+      let recipientName = translationRef.current("recipientLabel");
+      if (rid === ctx.artist1Id) recipientName = ctx.artist1Name;
+      else if (rid === ctx.artist2Id) recipientName = ctx.artist2Name;
+      else if (rid === ctx.managerId) recipientName = ctx.managerName;
+      triggerAnimation({ giftName: "Cadeau", giftImage: "🎁", senderName, recipientName, price });
+    },
+  );
+
+  // Minuteur de parole via l'event serveur `timer` (mobile PATCH → backend émet `timer`).
+  useRoomEvent<{ ends_at?: string | null; target_id?: string | null }>(
+    "/live",
+    "duel",
+    id ?? null,
+    "timer",
+    (p) => {
+      applyPersistedTimerFromDb(p?.ends_at ?? null, p?.target_id ?? null);
+    },
+  );
+
+  // Bannière vainqueur depuis l'event serveur `status` (winner_id). Idempotent : une seule fois
+  // par vainqueur, et pas de ré-affichage après un rejet manuel.
+  useRoomEvent<{ winner_id?: string | null }>(
+    "/live",
+    "duel",
+    id ?? null,
+    "status",
+    (p) => {
+      const wid = p?.winner_id ?? null;
+      if (!wid) {
+        shownWinnerIdRef.current = null;
+        return;
+      }
+      if (wid === shownWinnerIdRef.current) return;
+      shownWinnerIdRef.current = wid;
+      const isA1 = wid === duel?.artist1_id;
+      const wp = isA1 ? profiles.artist1 : profiles.artist2;
+      const wv = isA1 ? votes.artist1 : votes.artist2;
+      setWinnerAnnouncement({ name: wp?.full_name || "Vainqueur", avatar: wp?.avatar_url || null, votes: wv });
+    },
+  );
 
 
   const isParticipant = currentUserId && duel && (currentUserId === duel.artist1_id || currentUserId === duel.artist2_id || currentUserId === duel.manager_id);

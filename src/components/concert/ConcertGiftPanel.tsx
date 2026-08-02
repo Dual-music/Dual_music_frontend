@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
 import * as giftsApi from "@/api/endpoints/gifts";
 import { useRoomBroadcast } from "@/realtime/useRoomBroadcast";
+import { useRoomEvent } from "@/realtime/useRoom";
 import { getDisplayProfiles } from "@/api/endpoints/users";
 import { sendGift } from "@/api/endpoints/wallet";
 import { ApiError } from "@/api/http";
@@ -29,16 +30,30 @@ interface ConcertGiftPanelProps {
   concertId: string;
   artistId?: string;
   artistName?: string;
+  /** Type de room côté serveur pour écouter l'event `gift` : "concert" (défaut) ou "live". */
+  roomType?: "live" | "concert";
 }
 
 const ConcertGiftPanel = ({
   concertId,
   artistId,
   artistName = "Artiste",
+  roomType = "concert",
 }: ConcertGiftPanelProps) => {
   const { toast } = useToast();
   const { t } = useLanguage();
   const { user } = useAuth();
+  const currentUserId = user?.id ?? null;
+  // Dédup cross-canal (peer web ↔ event serveur `gift`) par signature `expéditeur:prix`.
+  const giftSigRef = useRef<Map<string, number>>(new Map());
+  const claimGiftSig = (sig: string): boolean => {
+    const now = Date.now();
+    const map = giftSigRef.current;
+    for (const [k, ts] of map) if (now - ts > 5000) map.delete(k);
+    if (map.has(sig)) return false;
+    map.set(sig, now);
+    return true;
+  };
   const [gifts, setGifts] = useState<any[]>([]);
   const [selectedGift, setSelectedGift] = useState<string>("");
   const [loading, setLoading] = useState(false);
@@ -106,6 +121,8 @@ const ConcertGiftPanel = ({
         seenEventIdsRef.current.add(eid);
         setTimeout(() => seenEventIdsRef.current.delete(eid), 10000);
       }
+      // Réserve la signature partagée : bloque l'event serveur `gift` correspondant.
+      if (!claimGiftSig(`${p.from_user_id ?? ""}:${Math.round(Number(p.price) || 0)}`)) return;
       showAnimationSafe({
         eventId: eid || crypto.randomUUID(),
         giftName: p.giftName,
@@ -113,6 +130,37 @@ const ConcertGiftPanel = ({
         senderName: p.senderName,
         recipientName: p.recipientName,
         price: Number(p.price) || 0,
+      });
+    },
+  );
+
+  // Bridge mobile → web : le backend émet l'event serveur `gift` pour tout cadeau (dont ceux
+  // envoyés depuis le MOBILE, qui ne diffuse pas sur le canal peer). On l'écoute ici, en
+  // ignorant ses propres envois et en dédupliquant via la signature partagée.
+  useRoomEvent<{ to_user_id?: string; from_user_id?: string; value?: number }>(
+    "/live",
+    roomType,
+    concertId || null,
+    "gift",
+    async (p) => {
+      const from = p?.from_user_id ?? "";
+      if (!from || from === currentUserId) return;
+      const price = Math.round(Number(p?.value) || 0);
+      if (!claimGiftSig(`${from}:${price}`)) return;
+      let senderName = t("userDefault");
+      try {
+        const sp = await getDisplayProfiles([from]);
+        senderName = (sp as any[])?.[0]?.full_name || senderName;
+      } catch {
+        /* fallback sur le libellé générique */
+      }
+      showAnimationSafe({
+        eventId: crypto.randomUUID(),
+        giftName: "Cadeau",
+        giftImage: "🎁",
+        senderName,
+        recipientName: artistName,
+        price,
       });
     },
   );
@@ -171,11 +219,15 @@ const ConcertGiftPanel = ({
           recipientName: artistName,
           price: Number(giftData.price) || 0,
           eventId: crypto.randomUUID(),
+          // Permet aux pairs de déduplier contre l'event serveur `gift` (même expéditeur:prix).
+          from_user_id: user.id,
         };
 
         // Mark as seen to prevent duplicate from self-broadcast
         seenEventIdsRef.current.add(animPayload.eventId);
         setTimeout(() => seenEventIdsRef.current.delete(animPayload.eventId), 10000);
+        // Réserve la signature (bloque l'event serveur renvoyé à l'expéditeur).
+        claimGiftSig(`${user.id}:${Math.round(animPayload.price)}`);
 
         // Sender sees animation immediately
         showAnimationSafe({ ...animPayload });
