@@ -85,7 +85,7 @@ export const ShareButton = ({ contentType, contentId, title, className = "", var
         className={`relative flex items-center justify-center transition-all ${
           isOverlay
             ? "w-10 h-10 rounded-full bg-black/50 backdrop-blur-sm text-white hover:bg-black/70"
-            : "gap-2 px-3 py-2 rounded-lg bg-card border border-border hover:bg-accent text-foreground"
+            : "gap-1 sm:gap-2 px-2 sm:px-3 py-2 rounded-lg bg-card border border-border hover:bg-accent text-foreground"
         }`}
         title="Partager"
       >
@@ -99,7 +99,7 @@ export const ShareButton = ({ contentType, contentId, title, className = "", var
             {shareCount > 999 ? `${(shareCount / 1000).toFixed(1)}k` : shareCount}
           </span>
         )}
-        {!isOverlay && <span className="text-sm">Partager</span>}
+        {!isOverlay && <span className="text-sm hidden sm:inline">Partager</span>}
       </button>
 
       <AnimatePresence>

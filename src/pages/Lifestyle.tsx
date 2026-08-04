@@ -91,7 +91,7 @@ const Lifestyle = () => {
         <SearchBar value={search} onChange={setSearch} placeholder={`${t("search") || "Rechercher"}...`} />
 
         {isLoading ? (
-          <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+          <div className="grid gap-3 sm:gap-4 grid-cols-1 min-[380px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
             {[1, 2, 3, 4, 5, 6].map((i) => (
               <Card key={i} className="overflow-hidden">
                 <Skeleton className="aspect-[9/16] w-full" />
@@ -140,7 +140,7 @@ const PaginatedVideos = ({ videos, currentUserId, setShowAuthDialog, navigate, l
   }
   return (
     <>
-      <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+      <div className="grid gap-3 sm:gap-4 grid-cols-1 min-[380px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
         {paginated.map((video: any) => {
           const isLiked = likedVideoIds?.includes(video.id);
           return (
@@ -170,7 +170,7 @@ const PaginatedVideos = ({ videos, currentUserId, setShowAuthDialog, navigate, l
                   <Eye className="w-3 h-3" />
                   <span>{formatCount(video.views_count)} {t("viewsCount")}</span>
                 </div>
-                <div className="flex items-center justify-between text-muted-foreground">
+                <div className="flex flex-wrap items-center justify-between gap-1 text-muted-foreground">
                   <Button
                     variant="ghost"
                     size="sm"
