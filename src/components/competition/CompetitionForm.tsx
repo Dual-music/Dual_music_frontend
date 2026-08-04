@@ -63,6 +63,8 @@ export const CompetitionForm = ({ managerId, initial, onSaved }: Props) => {
   const [rewardAmount, setRewardAmount] = useState<number>(initial?.reward_amount || 0);
   const [entryFeeRequired, setEntryFeeRequired] = useState(!!initial?.entry_fee_required);
   const [entryFeeAmount, setEntryFeeAmount] = useState<number>(initial?.entry_fee_amount || 0);
+  // Le manager choisit d'accepter les sponsors ou non (défaut oui).
+  const [acceptsSponsors, setAcceptsSponsors] = useState<boolean>(initial?.accepts_sponsors ?? true);
   const [eligibilityScope, setEligibilityScope] = useState<"country" | "africa" | "world">(
     initial?.eligibility_scope || "country"
   );
@@ -147,6 +149,7 @@ export const CompetitionForm = ({ managerId, initial, onSaved }: Props) => {
       rewardAmount: rewardAmount || 0,
       entryFeeRequired,
       entryFeeAmount: entryFeeRequired ? entryFeeAmount : 0,
+      acceptsSponsors,
       eligibilityScope,
       eligibleCountries: eligibilityScope === "country" ? eligibleCountries : [],
       country: mode === "onsite" ? country : null,
@@ -235,6 +238,12 @@ export const CompetitionForm = ({ managerId, initial, onSaved }: Props) => {
               onChange={(e) => setEntryFeeAmount(parseFloat(e.target.value || "0"))} />
           </div>
         )}
+
+        {/* Accepter les sponsors : si désactivé, aucune candidature sponsor n'est possible. */}
+        <div className="flex items-center justify-between p-3 rounded-md bg-muted/30">
+          <Label>{t("compAcceptSponsors") || "Accepter les sponsors"}</Label>
+          <Switch checked={acceptsSponsors} onCheckedChange={setAcceptsSponsors} />
+        </div>
 
         <div>
           <Label>{t("compEligibility")}</Label>

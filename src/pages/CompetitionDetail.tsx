@@ -88,7 +88,7 @@ const CompetitionDetail = () => {
       <SEO title={`${comp.title} — ${t("competitions")}`} description={comp.description || comp.title} />
       <Header />
       <main className="container py-6 space-y-4 max-w-4xl">
-        {comp.cover_url && <img src={comp.cover_url} alt={comp.title} className="w-full aspect-video object-cover rounded-lg" />}
+        {comp.cover_url && <img src={comp.cover_url} alt={comp.title} className="w-full h-auto max-h-[70vh] object-contain rounded-lg bg-muted/30" />}
 
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div>

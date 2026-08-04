@@ -124,7 +124,7 @@ export const ManagerCompetitionsPanel = ({ managerId }: Props) => {
               <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
             </div>
           </div>
-          {c.status !== "finished" && (
+          {c.status !== "finished" && c.accepts_sponsors !== false && (
             <div className="border-t p-3" onClick={(e) => e.stopPropagation()}>
               <SponsorDeadlineControl
                 table="competitions"
