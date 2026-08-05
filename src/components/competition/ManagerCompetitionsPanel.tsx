@@ -20,7 +20,6 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { formatTz } from "@/lib/datetime";
 import { useUiPreferences } from "@/hooks/useUiPreferences";
 import CompetitionForm from "@/components/competition/CompetitionForm";
-import { SponsorDeadlineControl } from "@/components/sponsor/SponsorDeadlineControl";
 
 interface Props { managerId: string }
 
@@ -124,16 +123,8 @@ export const ManagerCompetitionsPanel = ({ managerId }: Props) => {
               <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
             </div>
           </div>
-          {c.status !== "finished" && c.accepts_sponsors !== false && (
-            <div className="border-t p-3" onClick={(e) => e.stopPropagation()}>
-              <SponsorDeadlineControl
-                table="competitions"
-                rowId={c.id}
-                currentValue={c.sponsor_submission_deadline}
-                onSaved={(iso) => setList((prev) => prev.map((x) => x.id === c.id ? { ...x, sponsor_submission_deadline: iso } : x))}
-              />
-            </div>
-          )}
+          {/* La date limite sponsor se règle désormais dans le formulaire (case « Accepter les
+              sponsors ») — plus de bloc séparé dans la liste. */}
         </CardContent>
       </Card>
     );
