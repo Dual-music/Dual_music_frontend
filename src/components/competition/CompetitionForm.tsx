@@ -123,6 +123,7 @@ export const CompetitionForm = ({ managerId, initial, onSaved }: Props) => {
   const [applicationDeadline, setApplicationDeadline] = useState(toTzInput(initial?.application_deadline));
   const [startAt, setStartAt] = useState(toTzInput(initial?.start_at));
   const [endAt, setEndAt] = useState(toTzInput(initial?.end_at));
+  const [sponsorDeadline, setSponsorDeadline] = useState(toTzInput(initial?.sponsor_submission_deadline));
 
   const toggleCountry = (code: string) => {
     setEligibleCountries((prev) =>
@@ -150,6 +151,7 @@ export const CompetitionForm = ({ managerId, initial, onSaved }: Props) => {
       entryFeeRequired,
       entryFeeAmount: entryFeeRequired ? entryFeeAmount : 0,
       acceptsSponsors,
+      sponsorSubmissionDeadline: acceptsSponsors ? fromTzInput(sponsorDeadline) : null,
       eligibilityScope,
       eligibleCountries: eligibilityScope === "country" ? eligibleCountries : [],
       country: mode === "onsite" ? country : null,
@@ -244,6 +246,13 @@ export const CompetitionForm = ({ managerId, initial, onSaved }: Props) => {
           <Label>{t("compAcceptSponsors") || "Accepter les sponsors"}</Label>
           <Switch checked={acceptsSponsors} onCheckedChange={setAcceptsSponsors} />
         </div>
+        {/* Date limite des candidatures sponsor — proposée dès que les sponsors sont acceptés. */}
+        {acceptsSponsors && (
+          <div>
+            <Label>{t("compSponsorDeadline") || "Date limite des candidatures sponsor"} ({tz})</Label>
+            <Input type="datetime-local" value={sponsorDeadline} onChange={(e) => setSponsorDeadline(e.target.value)} />
+          </div>
+        )}
 
         <div>
           <Label>{t("compEligibility")}</Label>
