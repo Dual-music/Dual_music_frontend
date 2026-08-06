@@ -23,7 +23,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useUiPreferences } from "@/hooks/useUiPreferences";
-import { formatTz } from "@/lib/datetime";
+import { formatTz, toTzInputValue, toWireUtc } from "@/lib/datetime";
 import { Trophy, Plus, Trash2, Award, Crown, Edit } from "lucide-react";
 import SeasonWinnersManager from "./SeasonWinnersManager";
 
@@ -61,11 +61,11 @@ const LeaderboardSeasonsManager = () => {
   };
 
   const openCreateDialog = () => { setEditingSeason(null); setForm({ name: "", type: "artist", start_date: "", end_date: "", is_active: true, is_mystery_reward: false }); setDialogOpen(true); };
-  const openEditDialog = (season: Season) => { setEditingSeason(season); setForm({ name: season.name, type: season.type, start_date: season.start_date.slice(0, 16), end_date: season.end_date.slice(0, 16), is_active: season.is_active, is_mystery_reward: season.is_mystery_reward }); setDialogOpen(true); };
+  const openEditDialog = (season: Season) => { setEditingSeason(season); setForm({ name: season.name, type: season.type, start_date: toTzInputValue(season.start_date, tz), end_date: toTzInputValue(season.end_date, tz), is_active: season.is_active, is_mystery_reward: season.is_mystery_reward }); setDialogOpen(true); };
 
   const saveSeason = async () => {
     if (!form.name || !form.start_date || !form.end_date) { toast({ title: t("error"), description: t("adminSeasonsFillFields"), variant: "destructive" }); return; }
-    const payload = { name: form.name, type: form.type, start_date: form.start_date, end_date: form.end_date, is_active: form.is_active, is_mystery_reward: form.is_mystery_reward };
+    const payload = { name: form.name, type: form.type, start_date: toWireUtc(form.start_date, tz), end_date: toWireUtc(form.end_date, tz), is_active: form.is_active, is_mystery_reward: form.is_mystery_reward };
     try {
       if (editingSeason) {
         await leaderboards.updateSeason(editingSeason.id, payload);

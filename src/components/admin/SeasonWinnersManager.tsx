@@ -20,6 +20,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { getUiPrefs } from "@/hooks/useUiPreferences";
+import { formatTz, toWireUtc } from "@/lib/datetime";
 import { Trophy, Plus, Gift, Package, Sparkles, Bell, CalendarClock, Check } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
@@ -61,7 +63,7 @@ interface Props {
 
 const SeasonWinnersManager = ({ seasonId, seasonType, rewards, isPast }: Props) => {
   const { toast } = useToast();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [winners, setWinners] = useState<Winner[]>([]);
   const [users, setUsers] = useState<{ id: string; name: string; avatar: string | null }[]>([]);
   const [selectedUser, setSelectedUser] = useState("");
@@ -197,7 +199,7 @@ const SeasonWinnersManager = ({ seasonId, seasonType, rewards, isPast }: Props) 
     try {
       await leaderboards.updateWinner(winnerId, {
         meeting_status: "proposed",
-        meeting_when: new Date(d.when).toISOString(),
+        meeting_when: toWireUtc(d.when, getUiPrefs().timezone),
         meeting_location: d.location || null,
         meeting_notes: d.notes || null,
       });
@@ -249,7 +251,7 @@ const SeasonWinnersManager = ({ seasonId, seasonType, rewards, isPast }: Props) 
     }
   };
 
-  const fmt = (d: string | null) => d ? new Date(d).toLocaleString() : "—";
+  const fmt = (d: string | null) => d ? formatTz(d, "dd/MM/yyyy HH:mm", { timezone: getUiPrefs().timezone, language }) : "—";
 
   if (loading) return null;
 

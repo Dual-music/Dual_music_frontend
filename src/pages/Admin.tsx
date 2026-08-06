@@ -88,7 +88,7 @@ import TransactionsPanel from "@/components/profile/TransactionsPanel";
 import { WithdrawalPinGate } from "@/components/profile/WithdrawalPinGate";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { getUiPrefs } from "@/hooks/useUiPreferences";
-import { formatTz } from "@/lib/datetime";
+import { formatTz, toTzInputValue, toWireUtc } from "@/lib/datetime";
 import { useCurrencyFormatter } from "@/hooks/useCurrency";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -220,8 +220,10 @@ const DuelRequestRow = ({
   onReject: () => void;
   getStatusBadge: (s: string) => JSX.Element;
 }) => {
+  const dtz = getUiPrefs().timezone;
   const [selectedManager, setSelectedManager] = useState<string>(request.manager_id || "");
-  const [scheduledDate, setScheduledDate] = useState<string>(request.proposed_date || "");
+  // Valeur d'horloge (fuseau préféré) pour l'input datetime-local ; convertie en UTC à l'envoi.
+  const [scheduledDate, setScheduledDate] = useState<string>(toTzInputValue(request.proposed_date, dtz));
   const [ticketPrice, setTicketPrice] = useState<number>(0);
   const [allowsSponsorAds, setAllowsSponsorAds] = useState<boolean>(true);
   const [isEditingDate, setIsEditingDate] = useState(false);
@@ -255,7 +257,7 @@ const DuelRequestRow = ({
         });
         return;
       }
-      await duelsApi.updateDuel(duel.id as string, { scheduledTime: scheduledDate });
+      await duelsApi.updateDuel(duel.id as string, { scheduledTime: toWireUtc(scheduledDate, dtz) });
       toast({ title: "Date mise à jour", description: "La date du duel a été modifiée." });
       setIsEditingDate(false);
     } catch (e) {
@@ -273,7 +275,7 @@ const DuelRequestRow = ({
       <td className="p-4">{request.opponent_name}</td>
       <td className="p-4">
         {canApprove || isEditingDate ? (
-          <Input type="datetime-local" value={scheduledDate ? scheduledDate.slice(0, 16) : ""} onChange={(e) => setScheduledDate(e.target.value)} className="w-[200px]" />
+          <Input type="datetime-local" value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} className="w-[200px]" />
         ) : (
           <div className="flex items-center gap-2">
             <span>{fmt(request.proposed_date)}</span>
@@ -322,7 +324,7 @@ const DuelRequestRow = ({
               Autoriser les publicités sponsor
             </label>
             <div className="flex gap-2">
-              <Button size="sm" className="bg-green-500 hover:bg-green-600" onClick={() => onApprove(selectedManager, scheduledDate, ticketPrice, allowsSponsorAds)} disabled={!selectedManager || !scheduledDate}>
+              <Button size="sm" className="bg-green-500 hover:bg-green-600" onClick={() => onApprove(selectedManager, toWireUtc(scheduledDate, dtz) || undefined, ticketPrice, allowsSponsorAds)} disabled={!selectedManager || !scheduledDate}>
                 <CheckCircle className="w-4 h-4" />
               </Button>
               <Button size="sm" variant="destructive" onClick={onReject}><XCircle className="w-4 h-4" /></Button>

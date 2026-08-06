@@ -18,7 +18,7 @@ import { Plus, Calendar, Ticket, DollarSign, Users, Video, Play, Trash2, Edit } 
 import { ImageUpload } from "@/components/ui/image-upload";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useUiPreferences } from "@/hooks/useUiPreferences";
-import { formatTz } from "@/lib/datetime";
+import { formatTz, toTzInputValue, toWireUtc } from "@/lib/datetime";
 import { SponsorDeadlineControl } from "@/components/sponsor/SponsorDeadlineControl";
 
 interface ArtistConcertManagerProps {
@@ -98,7 +98,7 @@ export const ArtistConcertManager = ({ userId }: ArtistConcertManagerProps) => {
       const payload = {
         title: formData.title,
         description: formData.description || null,
-        scheduledDate: formData.scheduled_date,
+        scheduledDate: toWireUtc(formData.scheduled_date, tz),
         ticketPrice: parseFloat(formData.ticket_price) || 0,
         maxTickets: formData.max_tickets ? parseInt(formData.max_tickets) : null,
         coverImageUrl: formData.cover_image_url || null,
@@ -324,7 +324,7 @@ export const ArtistConcertManager = ({ userId }: ArtistConcertManagerProps) => {
                       setFormData({
                         title: concert.title,
                         description: concert.description || "",
-                        scheduled_date: concert.scheduled_date.slice(0, 16),
+                        scheduled_date: toTzInputValue(concert.scheduled_date, tz),
                         ticket_price: String(concert.ticket_price),
                         max_tickets: concert.max_tickets ? String(concert.max_tickets) : "",
                         cover_image_url: concert.cover_image_url || "",

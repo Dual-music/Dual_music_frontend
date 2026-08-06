@@ -17,7 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Swords, Search, Send, Check, X, Clock } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useUiPreferences } from "@/hooks/useUiPreferences";
-import { formatTz } from "@/lib/datetime";
+import { formatTz, toWireUtc } from "@/lib/datetime";
 
 interface DuelRequestFormProps { userId: string; }
 
@@ -94,7 +94,7 @@ export const DuelRequestForm = ({ userId }: DuelRequestFormProps) => {
     try {
       await createDuelRequest({
         opponentId: selectedArtist.id,
-        proposedDate: proposedDate || null,
+        proposedDate: toWireUtc(proposedDate, tz),
         message: message.trim() || null,
       });
       // Notifications are emitted server-side.

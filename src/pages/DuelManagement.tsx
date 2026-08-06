@@ -17,7 +17,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useUiPreferences } from "@/hooks/useUiPreferences";
-import { formatTz } from "@/lib/datetime";
+import { formatTz, toWireUtc } from "@/lib/datetime";
 import { SponsorDeadlineControl } from "@/components/sponsor/SponsorDeadlineControl";
 
 const DuelManagement = () => {
@@ -168,7 +168,7 @@ const DuelManagement = () => {
       await createDuel({
         artist1_id: formData.artist1_id,
         artist2_id: formData.artist2_id,
-        scheduled_time: formData.scheduled_time || null,
+        scheduled_time: toWireUtc(formData.scheduled_time, tz),
         room_id: formData.room_id || null,
         manager_id: managerId,
         status: "upcoming"

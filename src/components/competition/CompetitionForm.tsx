@@ -35,6 +35,7 @@ import { COUNTRIES } from "@/data/countries";
 import { ImageUpload } from "@/components/ui/image-upload";
 import { Search, X, Clock } from "lucide-react";
 import { useUiPreferences } from "@/hooks/useUiPreferences";
+import { toTzInputValue, toWireUtc } from "@/lib/datetime";
 
 interface Props {
   managerId: string;
@@ -76,48 +77,10 @@ export const CompetitionForm = ({ managerId, initial, onSaved }: Props) => {
   const [venueName, setVenueName] = useState(initial?.venue_name || "");
   const [venueAddress, setVenueAddress] = useState(initial?.venue_address || "");
   const [venueContact, setVenueContact] = useState(initial?.venue_contact || "");
-  // Convert a stored UTC ISO string to the "yyyy-MM-ddTHH:mm" string expected
-  // by <input type="datetime-local">, expressed in the user's preferred TZ.
-  const toTzInput = (iso?: string | null): string => {
-    if (!iso) return "";
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return "";
-    if (tz === "GMT" || tz === "UTC") {
-      return new Date(d.getTime()).toISOString().slice(0, 16);
-    }
-    try {
-      const parts = new Intl.DateTimeFormat("en-CA", {
-        timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
-        hour: "2-digit", minute: "2-digit", hour12: false,
-      }).formatToParts(d);
-      const get = (t: string) => parts.find((p) => p.type === t)?.value || "00";
-      const h = get("hour") === "24" ? "00" : get("hour");
-      return `${get("year")}-${get("month")}-${get("day")}T${h}:${get("minute")}`;
-    } catch {
-      return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    }
-  };
-
-  // Parse a "yyyy-MM-ddTHH:mm" string as a wall-clock time in the user's
-  // preferred TZ, return the corresponding UTC ISO string.
-  const fromTzInput = (s: string): string | null => {
-    if (!s) return null;
-    if (tz === "GMT" || tz === "UTC") return new Date(s + "Z").toISOString();
-    try {
-      const naive = new Date(s + "Z"); // treat the wall-clock as if it were UTC
-      const parts = new Intl.DateTimeFormat("en-US", {
-        timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
-        hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
-      }).formatToParts(naive);
-      const get = (t: string) => Number(parts.find((p) => p.type === t)?.value || "0");
-      const hourTz = get("hour") === 24 ? 0 : get("hour");
-      const asTz = Date.UTC(get("year"), get("month") - 1, get("day"), hourTz, get("minute"), get("second"));
-      const offset = asTz - naive.getTime(); // tz offset at that wall-clock
-      return new Date(naive.getTime() - offset).toISOString();
-    } catch {
-      return new Date(s).toISOString();
-    }
-  };
+  // Dates stockées en UTC, saisies/affichées dans le fuseau préféré : conversions
+  // centralisées dans lib/datetime (mêmes règles pour tous les événements).
+  const toTzInput = (iso?: string | null): string => toTzInputValue(iso, tz);
+  const fromTzInput = (s: string): string | null => toWireUtc(s, tz);
 
   const [applicationOpensAt, setApplicationOpensAt] = useState(toTzInput(initial?.application_opens_at));
   const [applicationDeadline, setApplicationDeadline] = useState(toTzInput(initial?.application_deadline));

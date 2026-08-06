@@ -62,3 +62,60 @@ export const formatTz = (
     return format(d, pattern, { locale });
   }
 };
+
+/**
+ * Convert a stored UTC ISO instant to the `"yyyy-MM-ddTHH:mm"` string expected by
+ * `<input type="datetime-local">`, expressed as a wall-clock in the user's TZ.
+ *
+ * Inverse of {@link toWireUtc}. "GMT"/"UTC" ⇒ the UTC wall-clock; any IANA tz shifts.
+ * Use this to seed every event date input so edit round-trips are lossless.
+ */
+export const toTzInputValue = (iso: string | null | undefined, timezone?: string): string => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const tz = timezone || "GMT";
+  if (tz === "GMT" || tz === "UTC") {
+    return new Date(d.getTime()).toISOString().slice(0, 16);
+  }
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hour12: false,
+    }).formatToParts(d);
+    const get = (t: string) => parts.find((p) => p.type === t)?.value || "00";
+    const h = get("hour") === "24" ? "00" : get("hour");
+    return `${get("year")}-${get("month")}-${get("day")}T${h}:${get("minute")}`;
+  } catch {
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  }
+};
+
+/**
+ * Parse a `"yyyy-MM-ddTHH:mm"` wall-clock (from a datetime-local input or a mobile
+ * picker) as a time in the user's TZ and return the canonical **UTC ISO string**.
+ *
+ * This is THE single normalization every event date must pass through before hitting
+ * the API, so web and mobile agree on the instant regardless of the browser/device
+ * timezone. "GMT"/"UTC" ⇒ the wall-clock is taken as UTC (default). Returns null on empty.
+ */
+export const toWireUtc = (localValue: string | null | undefined, timezone?: string): string | null => {
+  if (!localValue) return null;
+  const s = localValue.length === 16 ? localValue : localValue.slice(0, 16);
+  const tz = timezone || "GMT";
+  if (tz === "GMT" || tz === "UTC") return new Date(s + "Z").toISOString();
+  try {
+    const naive = new Date(s + "Z"); // treat the wall-clock as if it were UTC first
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+    }).formatToParts(naive);
+    const get = (t: string) => Number(parts.find((p) => p.type === t)?.value || "0");
+    const hourTz = get("hour") === 24 ? 0 : get("hour");
+    const asTz = Date.UTC(get("year"), get("month") - 1, get("day"), hourTz, get("minute"), get("second"));
+    const offset = asTz - naive.getTime(); // tz offset at that wall-clock
+    return new Date(naive.getTime() - offset).toISOString();
+  } catch {
+    return new Date(s).toISOString();
+  }
+};

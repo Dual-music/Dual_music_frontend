@@ -12,6 +12,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { getUiPrefs } from "@/hooks/useUiPreferences";
+import { formatTz, toWireUtc } from "@/lib/datetime";
 import { CalendarClock, Check, MessageSquare, Trophy } from "lucide-react";
 
 interface WinnerRow {
@@ -32,7 +34,7 @@ interface Props { userId: string; }
 
 const RewardMeetingCard = ({ userId }: Props) => {
   const { toast } = useToast();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [rows, setRows] = useState<WinnerRow[]>([]);
   const [editing, setEditing] = useState<Record<string, { when: string; location: string; notes: string }>>({});
 
@@ -65,7 +67,7 @@ const RewardMeetingCard = ({ userId }: Props) => {
         action === "counter"
           ? {
               meeting_status: "counter_proposed",
-              counter_when: new Date(e?.when || "").toISOString(),
+              counter_when: toWireUtc(e?.when, getUiPrefs().timezone),
               counter_location: e?.location || null,
               counter_notes: e?.notes || null,
             }
@@ -82,7 +84,7 @@ const RewardMeetingCard = ({ userId }: Props) => {
 
   if (rows.length === 0) return null;
 
-  const fmt = (d: string | null) => d ? new Date(d).toLocaleString() : "—";
+  const fmt = (d: string | null) => d ? formatTz(d, "dd/MM/yyyy HH:mm", { timezone: getUiPrefs().timezone, language }) : "—";
 
   return (
     <Card className="border-primary/40">

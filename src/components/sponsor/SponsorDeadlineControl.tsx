@@ -15,6 +15,8 @@ import { Badge } from "@/components/ui/badge";
 import { CalendarClock, Save } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { getUiPrefs } from "@/hooks/useUiPreferences";
+import { formatTz, toTzInputValue, toWireUtc } from "@/lib/datetime";
 
 interface Props {
   table: "competitions" | "duels" | "concerts" | "artist_concerts";
@@ -23,17 +25,11 @@ interface Props {
   onSaved?: (iso: string | null) => void;
 }
 
-const toLocalInput = (iso?: string | null) => {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
-
 export const SponsorDeadlineControl = ({ table, rowId, currentValue, onSaved }: Props) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { toast } = useToast();
-  const [value, setValue] = useState<string>(toLocalInput(currentValue));
+  const tz = getUiPrefs().timezone;
+  const [value, setValue] = useState<string>(toTzInputValue(currentValue, tz));
   const [busy, setBusy] = useState(false);
 
   // table → the backend `eventType` enum. All four event types carry a
@@ -54,7 +50,7 @@ export const SponsorDeadlineControl = ({ table, rowId, currentValue, onSaved }: 
   const save = async () => {
     if (!value) return;
     setBusy(true);
-    const iso = new Date(value).toISOString();
+    const iso = toWireUtc(value, tz);
     try {
       await persistDeadline(iso);
       toast({ title: t("sponsorDeadlineSaved") || "Deadline saved" });
@@ -108,7 +104,7 @@ export const SponsorDeadlineControl = ({ table, rowId, currentValue, onSaved }: 
       </div>
       {currentValue && (
         <Badge variant={isPast ? "destructive" : "outline"}>
-          {isPast ? (t("sponsorDeadlinePassed") || "Candidatures clôturées") : new Date(currentValue).toLocaleString()}
+          {isPast ? (t("sponsorDeadlinePassed") || "Candidatures clôturées") : formatTz(currentValue, "dd/MM/yyyy HH:mm", { timezone: tz, language })}
         </Badge>
       )}
     </div>
