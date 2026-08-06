@@ -119,6 +119,7 @@ interface LiveRow {
 interface ConcertRow {
   id: string; title: string; artist_name: string; scheduled_date: string;
   status: string; ticket_price: number; tickets_sold: number | null;
+  approval_status?: string;
 }
 interface UserRow {
   id: string; full_name: string | null; email: string; is_banned: boolean | null;
@@ -376,7 +377,7 @@ const Admin = () => {
   const [stats, setStats] = useState({
     totalUsers: 0, totalConcerts: 0, totalDuels: 0, totalReplays: 0,
     pendingArtistRequests: 0, pendingManagerRequests: 0, pendingDuelRequests: 0,
-    pendingWithdrawals: 0, activeLives: 0, pendingSponsors: 0,
+    pendingWithdrawals: 0, activeLives: 0, pendingSponsors: 0, pendingConcerts: 0,
   });
 
   // Sidebar navigation state — synced with URL ?tab=
@@ -552,6 +553,7 @@ const Admin = () => {
         pendingWithdrawals: withdrawals.filter(r => r.status === "pending").length,
         activeLives: (livesData.data || []).filter(l => l.status === "live").length,
         pendingSponsors: 0,
+        pendingConcerts: (concertsData.data || []).filter(c => c.approval_status === "pending").length,
       });
 
       // Sponsor pending count (best-effort).
@@ -638,9 +640,20 @@ const Admin = () => {
     if (!approvalRequest) return;
     setApprovalSubmitting(true);
     try {
-      // Backend processes the payout via the chosen provider + notifies.
-      await withdrawalsApi.complete(approvalRequest.id, { provider: approvalProvider });
-      toast({ title: t("adminWithdrawalDone"), description: `Provider: ${approvalProvider}` });
+      if (approvalProvider === "cinetpay") {
+        // Versement réel : le backend émet le transfert Mobile Money. La demande
+        // passe en `processing` et n'est clôturée que par le webhook CinetPay —
+        // ne jamais la marquer « payée » ici, l'argent n'est pas encore parti.
+        const res = await withdrawalsApi.payout(approvalRequest.id, crypto.randomUUID());
+        toast({
+          title: t("adminWithdrawalPayoutSent") || "Versement envoyé",
+          description: `${res.amount} ${res.currency} — réf. ${res.merchantTransactionId}`,
+        });
+      } else {
+        // Virement effectué hors plateforme : on enregistre seulement le règlement.
+        await withdrawalsApi.complete(approvalRequest.id, { provider: approvalProvider });
+        toast({ title: t("adminWithdrawalDone"), description: `Provider: ${approvalProvider}` });
+      }
       setApprovalRequest(null);
       await loadDashboardData();
     } catch (e: any) {
@@ -808,6 +821,24 @@ const Admin = () => {
     });
   };
 
+  // Approuve / rejette un concert en attente. Le backend notifie l'artiste
+  // (notification + email) et débloque (ou non) le passage en direct.
+  const handleReviewConcert = async (concertId: string, approve: boolean) => {
+    let rejectionReason: string | undefined;
+    if (!approve) {
+      const reason = window.prompt(t("adminConcertRejectReasonPrompt") || "Motif du rejet (facultatif) :", "");
+      if (reason === null) return; // annulé
+      rejectionReason = reason || undefined;
+    }
+    try {
+      await concertsApi.reviewArtistConcert(concertId, { approve, rejectionReason });
+      toast({ title: approve ? (t("adminConcertApproved") || "Concert approuvé") : (t("adminConcertRejected") || "Concert rejeté") });
+      await loadDashboardData();
+    } catch (error: any) {
+      toast({ title: t("error"), description: error.message, variant: "destructive" });
+    }
+  };
+
   const handleDeleteConcert = async (concertId: string) => {
     const concert = concerts.find(c => c.id === concertId);
     confirm({
@@ -927,6 +958,7 @@ const Admin = () => {
                 pendingWithdrawals: stats.pendingWithdrawals,
                 activeLives: stats.activeLives,
                 pendingSponsors: stats.pendingSponsors,
+                pendingConcerts: stats.pendingConcerts,
               }}
               open={sidebarOpen}
               onOpenChange={setSidebarOpen}
@@ -1439,10 +1471,28 @@ const Admin = () => {
                       { key: "tickets_sold", label: t("adminColTicketsSold"), render: (c) => c.tickets_sold ?? 0 },
                       { key: "status", label: t("adminColStatus"), sortable: true, render: (c) => statusBadge(c.status) },
                       {
+                        key: "approval_status", label: t("adminColApproval") || "Approbation", sortable: true,
+                        render: (c) => c.approval_status === "pending"
+                          ? <Badge className="bg-yellow-500 text-black"><Clock className="w-3 h-3 mr-1" />{t("adminStatusPending") || "En attente"}</Badge>
+                          : c.approval_status === "rejected"
+                            ? <Badge variant="destructive"><XCircle className="w-3 h-3 mr-1" />{t("adminStatusRejected")}</Badge>
+                            : <Badge className="bg-green-500 text-white"><CheckCircle className="w-3 h-3 mr-1" />{t("adminStatusApproved")}</Badge>
+                      },
+                      {
                         key: "actions", label: t("adminColActions"),
                         render: (concert) => (
                           <div className="flex gap-2">
                             <Button variant="outline" size="sm" onClick={() => navigate(`/concert/${concert.id}`)}><Eye className="w-4 h-4" /></Button>
+                            {concert.approval_status === "pending" && (
+                              <>
+                                <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={() => handleReviewConcert(concert.id, true)}>
+                                  <CheckCircle className="w-4 h-4 mr-1" />{t("adminApprove") || "Approuver"}
+                                </Button>
+                                <Button size="sm" variant="destructive" onClick={() => handleReviewConcert(concert.id, false)}>
+                                  <XCircle className="w-4 h-4 mr-1" />{t("adminReject") || "Rejeter"}
+                                </Button>
+                              </>
+                            )}
                             {concert.status === "live" && (
                               <Button size="sm" variant="destructive" onClick={() => handleStopConcert(concert.id)}>
                                 <StopCircle className="w-4 h-4 mr-1" />{t("adminStop")}

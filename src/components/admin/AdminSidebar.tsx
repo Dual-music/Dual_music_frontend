@@ -42,6 +42,7 @@ interface AdminSidebarProps {
     pendingWithdrawals: number;
     activeLives: number;
     pendingSponsors?: number;
+    pendingConcerts?: number;
   };
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -67,7 +68,7 @@ export function useAdminTabs(stats: AdminSidebarProps["stats"]): AdminTabItem[] 
 
     { value: "duels",            label: t("adminTabDuels"),         icon: <Swords className="w-4 h-4" />,       group: "content" },
     { value: "competitions",     label: t("adminTabCompetitions"),  icon: <Trophy className="w-4 h-4" />,       group: "content" },
-    { value: "concerts",         label: t("adminTabConcerts"),      icon: <Music className="w-4 h-4" />,        group: "content" },
+    { value: "concerts",         label: t("adminTabConcerts"),      icon: <Music className="w-4 h-4" />,        badge: stats.pendingConcerts, badgeClass: "bg-yellow-500 text-black", group: "content" },
     { value: "lives",            label: t("adminTabLives"),         icon: <Radio className="w-4 h-4" />,        badge: stats.activeLives, badgeClass: "bg-red-500", group: "content" },
     { value: "replays",          label: t("adminTabReplays"),       icon: <Video className="w-4 h-4" />,        group: "content" },
     { value: "lifestyle",        label: t("adminTabLifestyle"),     icon: <Video className="w-4 h-4" />,        group: "content" },
