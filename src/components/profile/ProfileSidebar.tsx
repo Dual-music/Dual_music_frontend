@@ -31,7 +31,7 @@ export function useProfileTabs(role: ProfileRole): ProfileTabItem[] {
       { value: "concerts",      label: t("concerts"),          icon: <Music className="w-4 h-4" /> },
       { value: "lives",         label: t("lives"),             icon: <Radio className="w-4 h-4" /> },
       { value: "competitions",  label: t("compMyCompetitions"), icon: <Mic className="w-4 h-4" /> },
-      { value: "content",       label: t("content"),           icon: <Video className="w-4 h-4" /> },
+      { value: "content",       label: t("navLifestyle"),      icon: <Video className="w-4 h-4" /> },
       { value: "earnings",      label: t("earnings"),          icon: <DollarSign className="w-4 h-4" /> },
       { value: "followed",      label: t("followed") || t("sbFollowing"), icon: <Heart className="w-4 h-4" /> },
       { value: "transactions",  label: t("sbMyTransactions"),   icon: <Wallet className="w-4 h-4" /> },
