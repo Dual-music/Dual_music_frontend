@@ -39,6 +39,8 @@ const Auth = () => {
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [signupName, setSignupName] = useState("");
+  const [signupBirthDate, setSignupBirthDate] = useState("");
+  const [signupGender, setSignupGender] = useState("");
   const [signupEmail, setSignupEmail] = useState("");
   const [signupEmailTouched, setSignupEmailTouched] = useState(false);
   const [signupPhone, setSignupPhone] = useState("");
@@ -237,7 +239,9 @@ const Auth = () => {
         country_code: countryCode,
         phone: signupPhone.trim() || null,
         phone_country_code: selectedCountry.dial,
-      });
+        birth_date: signupBirthDate || null,
+        gender: signupGender || null,
+      } as any);
       setWizardActive(false); // Autorise de nouveau la redirection.
       setOnboardingName(signupName);
       setShowOnboarding(true);
@@ -525,6 +529,34 @@ const Auth = () => {
                   className="bg-background/50"
                   required
                 />
+              </div>
+
+              {/* Date de naissance + Sexe */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-2">
+                  <Label htmlFor="signup-birth">{t("birthDate") || "Date de naissance"}</Label>
+                  <Input
+                    id="signup-birth"
+                    type="date"
+                    value={signupBirthDate}
+                    onChange={(e) => setSignupBirthDate(e.target.value)}
+                    className="bg-background/50"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="signup-gender">{t("gender") || "Sexe"}</Label>
+                  <select
+                    id="signup-gender"
+                    value={signupGender}
+                    onChange={(e) => setSignupGender(e.target.value)}
+                    className="w-full h-10 px-3 text-sm bg-background/50 border border-border rounded-md outline-none focus:ring-1 focus:ring-primary text-foreground"
+                  >
+                    <option value="">—</option>
+                    <option value="male">{t("genderMale") || "Homme"}</option>
+                    <option value="female">{t("genderFemale") || "Femme"}</option>
+                    <option value="other">{t("genderOther") || "Autre"}</option>
+                  </select>
+                </div>
               </div>
 
               {/* Country + Phone */}
