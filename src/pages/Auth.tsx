@@ -3,6 +3,7 @@ import SEO from "@/components/seo/SEO";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -485,16 +486,17 @@ const Auth = () => {
               </p>
               <div className="space-y-2">
                 <Label htmlFor="verify-code">Code de vérification</Label>
-                <Input
-                  id="verify-code"
-                  inputMode="numeric"
-                  value={verifyCode}
-                  onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, ""))}
-                  placeholder="123456"
-                  className="bg-background/50 tracking-widest text-center text-lg"
-                  maxLength={8}
-                  required
-                />
+                {/* Une case par chiffre (parité PIN retrait). */}
+                <InputOTP maxLength={6} value={verifyCode} onChange={(v) => setVerifyCode(v.replace(/\D/g, ""))}>
+                  <InputOTPGroup className="mx-auto">
+                    <InputOTPSlot index={0} />
+                    <InputOTPSlot index={1} />
+                    <InputOTPSlot index={2} />
+                    <InputOTPSlot index={3} />
+                    <InputOTPSlot index={4} />
+                    <InputOTPSlot index={5} />
+                  </InputOTPGroup>
+                </InputOTP>
               </div>
               <Button
                 type="submit"
