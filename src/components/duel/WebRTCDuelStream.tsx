@@ -564,7 +564,7 @@ const WebRTCDuelStreamInner = forwardRef<WebRTCDuelStreamHandle, WebRTCDuelStrea
       {/* Déclencheur des filtres (participant qui publie) — descendu SOUS la barre d'actions
           globale (likes/partage/plein écran) pour ne plus la chevaucher. */}
       {canApplyFilter && !hideControls && (
-        <div className="absolute top-16 right-2 z-20">
+        <div className="absolute top-24 right-2 z-20">
           <VideoFiltersPicker filterId={filterId} onChange={setFilterId} compact />
         </div>
       )}
