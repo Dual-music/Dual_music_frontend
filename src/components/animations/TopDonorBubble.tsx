@@ -183,9 +183,22 @@ export const TopDonorBubble = ({ contextType, contextId, cooldownMs = 20000 }: P
                 <div className="flex items-center gap-0.5 text-[8px] sm:text-[9px] font-bold uppercase tracking-wider text-amber-900 leading-tight">
                   <Sparkles className="w-2.5 h-2.5" /> Top donateur
                 </div>
-                <p className={`${reduced ? "text-[11px]" : "text-xs sm:text-sm"} font-extrabold text-amber-950 leading-tight truncate`}>
-                  👑 {current.full_name || "Anonyme"}
-                </p>
+                {reduced ? (
+                  <p className="text-[11px] font-extrabold text-amber-950 leading-tight truncate">
+                    👑 {current.full_name || "Anonyme"}
+                  </p>
+                ) : (
+                  // Nom défilant en continu droite→gauche (parité mobile).
+                  <div className="overflow-hidden">
+                    <motion.p
+                      className="text-xs sm:text-sm font-extrabold text-amber-950 leading-tight whitespace-nowrap"
+                      animate={{ x: ["100%", "-100%"] }}
+                      transition={{ duration: 9, repeat: Infinity, ease: "linear" }}
+                    >
+                      👑 {current.full_name || "Anonyme"}
+                    </motion.p>
+                  </div>
+                )}
                 {!reduced && (
                   <p className="flex items-center gap-1 text-[10px] sm:text-[11px] font-medium text-amber-900/90 leading-tight truncate mt-0.5">
                     <MessageCircle className="w-2.5 h-2.5 shrink-0" />
