@@ -49,6 +49,7 @@ export const CompetitionForm = ({ managerId, initial, onSaved }: Props) => {
   const tz = prefs.timezone || "GMT";
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
+  const [coverUploading, setCoverUploading] = useState(false);
   const [countrySearch, setCountrySearch] = useState("");
   const filteredCountries = COUNTRIES.filter((c) =>
     c.name.toLowerCase().includes(countrySearch.toLowerCase()) ||
@@ -158,6 +159,7 @@ export const CompetitionForm = ({ managerId, initial, onSaved }: Props) => {
         <ImageUpload
           value={coverUrl}
           onChange={setCoverUrl}
+          onUploadingChange={setCoverUploading}
           label={t("compCover")}
           folder="competitions"
         />
@@ -350,7 +352,7 @@ export const CompetitionForm = ({ managerId, initial, onSaved }: Props) => {
           </div>
         </div>
 
-        <Button onClick={handleSubmit} disabled={busy} className="w-full">
+        <Button onClick={handleSubmit} disabled={busy || coverUploading} className="w-full">
           {initial?.id ? (t("save") || "Enregistrer") : t("compSubmit")}
         </Button>
       </CardContent>

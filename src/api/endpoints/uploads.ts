@@ -22,7 +22,8 @@ export type UploadCategory =
   | "lifestyle"
   | "replay"
   | "sponsor"
-  | "attachment";
+  | "attachment"
+  | "sound";
 
 export interface PresignResult {
   uploadUrl: string;

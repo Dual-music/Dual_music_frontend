@@ -51,6 +51,7 @@ export const BlogManager = () => {
   const [editingBlog, setEditingBlog] = useState<Blog | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [formData, setFormData] = useState({ title: "", content: "", excerpt: "", image_url: "", category: "news", published: false });
+  const [coverUploading, setCoverUploading] = useState(false);
 
   useEffect(() => { fetchBlogs(); }, []);
 
@@ -129,7 +130,7 @@ export const BlogManager = () => {
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div><Label>{t("adminBlogTitleField")}</Label><Input value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} placeholder={t("adminBlogTitlePlaceholder")} /></div>
-              <ImageUpload value={formData.image_url} onChange={(url) => setFormData({ ...formData, image_url: url })} label={t("adminBlogCoverImage")} folder="blog" />
+              <ImageUpload value={formData.image_url} onChange={(url) => setFormData({ ...formData, image_url: url })} onUploadingChange={setCoverUploading} label={t("adminBlogCoverImage")} folder="blog" />
               <div><Label>{t("adminBlogCategory")}</Label><Input value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })} placeholder={t("adminBlogCategoryPlaceholder")} /></div>
               <div><Label>{t("adminBlogExcerpt")}</Label><Textarea value={formData.excerpt} onChange={(e) => setFormData({ ...formData, excerpt: e.target.value })} placeholder={t("adminBlogExcerptPlaceholder")} rows={2} /></div>
               <div><Label>{t("adminBlogContent")}</Label><Textarea value={formData.content} onChange={(e) => setFormData({ ...formData, content: e.target.value })} placeholder={t("adminBlogContentPlaceholder")} rows={10} /></div>
@@ -139,7 +140,7 @@ export const BlogManager = () => {
               </div>
               <div className="flex gap-2 justify-end">
                 <Button variant="outline" onClick={resetForm}>{t("adminBlogCancel")}</Button>
-                <Button onClick={handleSubmit}>{editingBlog ? t("adminBlogUpdate") : t("adminBlogCreate")}</Button>
+                <Button onClick={handleSubmit} disabled={coverUploading}>{editingBlog ? t("adminBlogUpdate") : t("adminBlogCreate")}</Button>
               </div>
             </div>
           </DialogContent>

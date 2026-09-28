@@ -9,7 +9,7 @@
  *
  * EN — Competition detail page with role-aware actions.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -90,10 +90,10 @@ const CompetitionDetail = () => {
       <main className="container py-6 space-y-4 max-w-4xl">
         {comp.cover_url && <img src={comp.cover_url} alt={comp.title} className="w-full h-auto max-h-[70vh] object-contain rounded-lg bg-muted/30" />}
 
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <h1 className="text-3xl font-bold">{comp.title}</h1>
-            <div className="flex items-center gap-2 mt-1">
+        <div className="flex items-start justify-between flex-wrap gap-2">
+          <div className="min-w-0">
+            <h1 className="text-2xl sm:text-3xl font-bold break-words">{comp.title}</h1>
+            <div className="flex items-center flex-wrap gap-2 mt-1">
               <Badge variant={comp.status === "live" ? "destructive" : "secondary"}>
                 {t("compStatus" + comp.status.charAt(0).toUpperCase() + comp.status.slice(1))}
               </Badge>
@@ -101,25 +101,42 @@ const CompetitionDetail = () => {
               {comp.is_public_paid ? <Badge>{t("compPaid")} · {comp.viewer_ticket_price}</Badge> : <Badge variant="outline">{t("compFree")}</Badge>}
             </div>
           </div>
-          <ShareButton contentType="duel" contentId={comp.id} title={comp.title} />
+          <ShareButton contentType="competition" contentId={comp.id} title={comp.title} />
         </div>
 
         {comp.description && <p className="text-muted-foreground whitespace-pre-line">{comp.description}</p>}
 
         <Card>
-          <CardContent className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-            <p className="flex items-center gap-2"><Calendar className="w-4 h-4" /> <b>{t("compStartAt")}:</b> {formatTz(comp.start_at, "PPp", { timezone: prefs.timezone, language })}</p>
-            <p className="flex items-center gap-2"><Calendar className="w-4 h-4" /> <b>{t("compEndAt")}:</b> {formatTz(comp.end_at, "PPp", { timezone: prefs.timezone, language })}</p>
-            {comp.application_opens_at && (
-              <p className="flex items-center gap-2"><Calendar className="w-4 h-4" /> <b>{t("compApplicationOpensAt")}:</b> {formatTz(comp.application_opens_at, "PPp", { timezone: prefs.timezone, language })}</p>
-            )}
-            <p className="flex items-center gap-2"><Calendar className="w-4 h-4" /> <b>{t("compApplicationDeadline")}:</b> {formatTz(comp.application_deadline, "PPp", { timezone: prefs.timezone, language })}</p>
-            <p className="flex items-center gap-2"><Users className="w-4 h-4" /> <b>{t("compMaxCandidates")}:</b> {comp.max_candidates}</p>
-            {comp.reward_description && <p className="flex items-center gap-2"><Trophy className="w-4 h-4" /> <b>{t("compReward")}:</b> {comp.reward_description}</p>}
-            {comp.entry_fee_required && <p className="flex items-center gap-2"><Gift className="w-4 h-4" /> <b>{t("compEntryFee")}:</b> {comp.entry_fee_amount}</p>}
-            {comp.mode === "onsite" && (
-              <p className="col-span-2 flex items-start gap-2"><MapPin className="w-4 h-4 mt-0.5" /> <span><b>{comp.venue_name}</b> — {comp.venue_address}, {comp.district}, {comp.commune}, {comp.city}, {comp.country}<br /><span className="text-xs text-muted-foreground">{comp.venue_contact}</span></span></p>
-            )}
+          <CardContent className="p-4 space-y-4 text-sm">
+            {/* Candidatures d'abord (ouverture puis limite), puis la compétition elle-même
+                (début puis fin) — dans cet ordre chronologique, jamais l'inverse. */}
+            <DateSection title={t("compCandidatesSectionTitle") || "Candidatures"}>
+              {comp.application_opens_at && (
+                <DateRow label={t("compApplicationOpensAt")} value={formatTz(comp.application_opens_at, "PPp", { timezone: prefs.timezone, language })} />
+              )}
+              <DateRow label={t("compApplicationDeadline")} value={formatTz(comp.application_deadline, "PPp", { timezone: prefs.timezone, language })} />
+            </DateSection>
+            <DateSection title={t("compEventSectionTitle") || "Compétition"}>
+              <DateRow label={t("compStartAt")} value={formatTz(comp.start_at, "PPp", { timezone: prefs.timezone, language })} />
+              <DateRow label={t("compEndAt")} value={formatTz(comp.end_at, "PPp", { timezone: prefs.timezone, language })} />
+            </DateSection>
+
+            <div className="border-t pt-3 space-y-2">
+              <p className="flex items-center gap-2"><Users className="w-4 h-4 text-muted-foreground shrink-0" /> <b>{t("compMaxCandidates")}:</b> {comp.max_candidates}</p>
+              {comp.reward_description && <p className="flex items-center gap-2"><Trophy className="w-4 h-4 text-muted-foreground shrink-0" /> <b>{t("compReward")}:</b> {comp.reward_description}</p>}
+              {comp.entry_fee_required && <p className="flex items-center gap-2"><Gift className="w-4 h-4 text-muted-foreground shrink-0" /> <b>{t("compEntryFee")}:</b> {comp.entry_fee_amount}</p>}
+              {comp.mode === "onsite" && (
+                <p className="flex items-start gap-2">
+                  <MapPin className="w-4 h-4 mt-0.5 text-muted-foreground shrink-0" />
+                  <span>
+                    <b>{comp.venue_name}</b>
+                    <br />
+                    <span className="text-muted-foreground">{[comp.venue_address, comp.district, comp.commune, comp.city, comp.country].filter(Boolean).join(", ")}</span>
+                    {comp.venue_contact && <><br /><span className="text-xs text-muted-foreground">{comp.venue_contact}</span></>}
+                  </span>
+                </p>
+              )}
+            </div>
           </CardContent>
         </Card>
 
@@ -161,5 +178,21 @@ const CompetitionDetail = () => {
     </div>
   );
 };
+
+/** Groupe de dates avec un petit titre de section — sépare visuellement candidatures vs compétition. */
+const DateSection = ({ title, children }: { title: string; children: ReactNode }) => (
+  <div className="space-y-1.5">
+    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
+    <div className="space-y-1.5">{children}</div>
+  </div>
+);
+
+/** Ligne « label : valeur » d'une date — empilée (jamais de grille) pour rester lisible sur mobile. */
+const DateRow = ({ label, value }: { label: string; value: string }) => (
+  <p className="flex items-center gap-2">
+    <Calendar className="w-4 h-4 text-muted-foreground shrink-0" />
+    <span><b>{label}</b> : {value}</span>
+  </p>
+);
 
 export default CompetitionDetail;

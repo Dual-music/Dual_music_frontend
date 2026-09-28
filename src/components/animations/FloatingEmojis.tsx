@@ -74,7 +74,11 @@ interface FloatingEmojisProps {
 
 export const FloatingEmojis = ({ emojis }: FloatingEmojisProps) => {
   return (
-    <div className="absolute bottom-16 right-4 w-16 h-72 pointer-events-none z-30 overflow-hidden">
+    // z-[60] : doit survoler les petites cases vidéo (vignettes multi-cam, cases invités) ET
+    // les rails de contrôle superposés à la vidéo (max observé z-50, ex. sélecteur de filtres
+    // hôte concert) — sans toutefois dépasser les panneaux modaux (bottom-sheets z-[100]+,
+    // plein écran z-[200]) qui doivent rester au-dessus des emojis quand ils sont ouverts.
+    <div className="absolute bottom-16 right-4 w-16 h-72 pointer-events-none z-[60] overflow-hidden">
       <AnimatePresence>
         {emojis.map((item) => (
           <motion.div

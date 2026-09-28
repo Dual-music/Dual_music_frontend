@@ -13,7 +13,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Bell, Gift, Award, Trophy, Check } from "lucide-react";
+import { Bell, Gift, Award, Trophy, Check, Heart, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { formatDistanceToNow } from "date-fns";
@@ -134,6 +134,12 @@ export const NotificationBell = () => {
         return <Gift className="w-4 h-4 text-pink-500" />;
       case "duel_win":
         return <Trophy className="w-4 h-4 text-yellow-500" />;
+      case "dedication_received":
+      case "dedication_accepted":
+      case "dedication_delivered":
+        return <Heart className="w-4 h-4 text-pink-500" />;
+      case "dedication_rejected":
+        return <X className="w-4 h-4 text-destructive" />;
       default:
         return <Bell className="w-4 h-4 text-primary" />;
     }

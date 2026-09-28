@@ -19,6 +19,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { Trophy, Crown, Medal } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import * as leaderboardsApi from "@/api/endpoints/leaderboards";
+import { useRoomEvent } from "@/realtime/useRoom";
 
 interface Donor {
   user_id: string;
@@ -44,19 +45,20 @@ export const GiftLeaderboard = ({ duelId, concertId, liveId, competitionId }: Gi
   const { t } = useLanguage();
   const [donors, setDonors] = useState<Donor[]>([]);
 
+  // Server-side per-context aggregation (GET /leaderboards/gifts) replaces the
+  // former client-side merge of competition_gifts/competition_votes/
+  // gift_transactions/duel_votes.
+  const ctx = duelId
+    ? ({ contextType: "duel", contextId: duelId } as const)
+    : competitionId
+      ? ({ contextType: "competition", contextId: competitionId } as const)
+      : liveId
+        ? ({ contextType: "live", contextId: liveId } as const)
+        : concertId
+          ? ({ contextType: "concert", contextId: concertId } as const)
+          : null;
+
   const fetchLeaderboard = async () => {
-    // Server-side per-context aggregation (GET /leaderboards/gifts) replaces the
-    // former client-side merge of competition_gifts/competition_votes/
-    // gift_transactions/duel_votes.
-    const ctx = duelId
-      ? ({ contextType: "duel", contextId: duelId } as const)
-      : competitionId
-        ? ({ contextType: "competition", contextId: competitionId } as const)
-        : liveId
-          ? ({ contextType: "live", contextId: liveId } as const)
-          : concertId
-            ? ({ contextType: "concert", contextId: concertId } as const)
-            : null;
     if (!ctx) {
       setDonors([]);
       return;
@@ -77,10 +79,16 @@ export const GiftLeaderboard = ({ duelId, concertId, liveId, competitionId }: Gi
   };
 
   useEffect(() => {
-    // realtime removed (no backend emit); data loads on mount + on action.
     fetchLeaderboard();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [duelId, concertId, liveId, competitionId]);
+
+  // Temps réel : le classement se rafraîchit dès qu'un cadeau (tous contextes) ou un vote
+  // (duel/compétition) est diffusé sur la room — plus besoin d'actualiser la page pour voir
+  // le classement à l'instant T (le backend émet bien ces events, seul le client ne les
+  // écoutait pas).
+  useRoomEvent("/live", ctx?.contextType ?? "duel", ctx?.contextId ?? null, "gift", fetchLeaderboard);
+  useRoomEvent("/live", ctx?.contextType ?? "duel", ctx?.contextId ?? null, "vote", fetchLeaderboard);
 
   if (donors.length === 0) return null;
 

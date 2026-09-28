@@ -24,6 +24,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { getDisplayProfiles } from "@/api/endpoints/users";
 import * as lives from "@/api/endpoints/lives";
+import * as concertsApi from "@/api/endpoints/concerts";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRoomBroadcast } from "@/realtime/useRoomBroadcast";
 import { usePresence, useRoomEvent } from "@/realtime/useRoom";
@@ -34,8 +35,9 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { Heart, ArrowLeft, LogOut, Users, Hand, Mic, MicOff, Video, VideoOff, X, Check, UserPlus, Maximize, Minimize, SwitchCamera, EyeOff, Eye } from "lucide-react";
+import { Heart, ArrowLeft, LogOut, Users, Hand, Mic, MicOff, Video, VideoOff, X, Check, UserPlus, Maximize, Minimize, SwitchCamera, EyeOff, Eye, Ban, Lock } from "lucide-react";
 import { ShareButton } from "@/components/sharing/ShareButton";
+import { RecordingButton } from "@/components/recording/RecordingButton";
 import { HostGuestControls } from "@/components/streaming/HostGuestControls";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -49,6 +51,12 @@ import { TopDonorBubble } from "@/components/animations/TopDonorBubble";
 import { FullscreenButton } from "@/components/streaming/FullscreenButton";
 import { LiveReportButton } from "@/components/streaming/LiveReportButton";
 import { BannedAccessGate } from "@/components/streaming/BannedAccessGate";
+import { useStreamBan } from "@/hooks/useStreamBan";
+import { useEventModerators } from "@/hooks/useEventModerators";
+import { useEventChatEnabled } from "@/hooks/useEventChatEnabled";
+import { EventModeratorsDialog } from "@/components/moderation/EventModeratorsDialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Switch } from "@/components/ui/switch";
 
 import { VideoZoomWrapper } from "@/components/streaming/VideoZoomWrapper";
 import { WebRTCHost } from "@/components/concert/WebRTCHost";
@@ -61,6 +69,8 @@ import { WebRTCHostControls } from "@/components/concert/WebRTCHost";
 import { motion, AnimatePresence } from "framer-motion";
 import { FollowArtistButton } from "@/components/artist/FollowArtistButton";
 import { DedicationDialog } from "@/components/concert/DedicationDialog";
+import { ArtistDedicationsManager } from "@/components/artist/ArtistDedicationsManager";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
 const LiveStream = () => {
   const { id } = useParams();
@@ -76,6 +86,12 @@ const LiveStream = () => {
   const [focusedGuestId, setFocusedGuestId] = useState<string | null>(null);
   const [showGuestThumbnails, setShowGuestThumbnails] = useState(true);
   const [guestRequestsEnabled, setGuestRequestsEnabled] = useState(true);
+  const [dedicationsEnabled, setDedicationsEnabled] = useState(true);
+  const [showDedicationsManager, setShowDedicationsManager] = useState(false);
+  const [pendingDedicationCount, setPendingDedicationCount] = useState(0);
+  // Réglages initialisés UNE FOIS depuis le live chargé (pas à chaque refetch, sinon un toggle
+  // de l'artiste serait écrasé par le prochain poll avant que le serveur ne réponde).
+  const liveSettingsInitRef = useRef(false);
   const viewerCount = usePresence("live", id ?? null);
   const [newMessage, setNewMessage] = useState("");
   const [joinRequests, setJoinRequests] = useState<any[]>([]);
@@ -161,6 +177,65 @@ const LiveStream = () => {
 
   const isArtist = currentUserId === live?.artist_id;
   const roomId = `live-${id}`;
+
+  // Chat moderation (ban / appointed moderators / chat on-off). This page has its own
+  // bespoke chat UI (not <ThreadedChat>), so the same logic used there is mirrored here.
+  const { bannedIds, isCurrentUserBanned, banUser } = useStreamBan({
+    streamType: "live",
+    streamId: id!,
+    currentUserId,
+  });
+  const { isAppointedModerator } = useEventModerators({ eventType: "live", eventId: id!, isHost: isArtist });
+  const canModerate = isArtist || isAppointedModerator(currentUserId);
+  const isChatEnabled = useEventChatEnabled("live", id, live?.chat_enabled as boolean | null | undefined);
+  const chatLocked = !isChatEnabled;
+  const [banTarget, setBanTarget] = useState<{ id: string; user_id: string; message: string; user_name?: string } | null>(null);
+  const [moderatorsOpen, setModeratorsOpen] = useState(false);
+  const [togglingChat, setTogglingChat] = useState(false);
+
+  const visibleChatMessages = useMemo(
+    () => chatMessages.filter((m) => !bannedIds.has(m.user_id)),
+    [chatMessages, bannedIds],
+  );
+
+  const handleToggleChat = async (next: boolean) => {
+    if (!id) return;
+    setTogglingChat(true);
+    try {
+      await lives.updateSettings(id, { chatEnabled: next });
+    } catch {
+      toast({ title: t("errorTitle") || "Erreur", variant: "destructive" });
+    } finally {
+      setTogglingChat(false);
+    }
+  };
+
+  const confirmBan = async () => {
+    if (!banTarget) return;
+    const ok = await banUser(banTarget.user_id, (banTarget.message || "").slice(0, 200));
+    if (ok) toast({ title: t("userBannedSuccess") });
+    setBanTarget(null);
+  };
+
+  // Réglages du live (dédicaces/invités) : lus UNE SEULE FOIS au premier chargement — sinon le
+  // polling (refetchInterval 10s) écraserait un toggle local avant que le PATCH ne soit confirmé.
+  useEffect(() => {
+    if (!live || liveSettingsInitRef.current) return;
+    liveSettingsInitRef.current = true;
+    setGuestRequestsEnabled(live.allow_guests !== false);
+    setDedicationsEnabled(live.allows_dedications !== false);
+  }, [live]);
+
+  const toggleGuestRequests = () => {
+    const next = !guestRequestsEnabled;
+    setGuestRequestsEnabled(next);
+    if (id) lives.updateSettings(id, { allowGuests: next }).catch(() => setGuestRequestsEnabled(!next));
+  };
+  const toggleDedications = () => {
+    const next = !dedicationsEnabled;
+    setDedicationsEnabled(next);
+    if (id) lives.updateSettings(id, { allowsDedications: next }).catch(() => setDedicationsEnabled(!next));
+  };
 
   // Eject all non-host viewers as soon as the artist ends the live.
   // status is polled via useQuery (refetchInterval 10s) — react to it here.
@@ -276,6 +351,24 @@ const LiveStream = () => {
   const artistJoinRoomId = isArtist ? (id ?? null) : null;
   useRoomEvent("/live", "live", artistJoinRoomId, "join:new", () => loadRequests());
   useRoomEvent("/live", "live", artistJoinRoomId, "join:update", () => loadRequests());
+
+  // Dédicaces en attente (artiste) : badge automatique sur l'icône « Dédicaces reçues » — pas
+  // besoin d'ouvrir le panneau pour voir le nombre, parité avec les demandes d'invité ci-dessus.
+  const loadPendingDedicationCount = async () => {
+    if (!id || !isArtist) return;
+    try {
+      const data = (await concertsApi.listConcertDedications({ concertId: id, concertType: "artist_live" })) as any[];
+      setPendingDedicationCount(data.filter((d) => d.status === "pending").length);
+    } catch {
+      /* non-blocking */
+    }
+  };
+  useEffect(() => {
+    loadPendingDedicationCount();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, isArtist]);
+  useRoomEvent("/live", "live", artistJoinRoomId, "dedication:new", () => loadPendingDedicationCount());
+  useRoomEvent("/live", "live", artistJoinRoomId, "dedication:update", () => loadPendingDedicationCount());
 
   // Check existing join request on mount
   useEffect(() => {
@@ -471,6 +564,14 @@ const LiveStream = () => {
 
   const sendMessage = async () => {
     if (!newMessage.trim() || !currentUserId || !id) return;
+    if (isCurrentUserBanned) {
+      toast({ title: t("youAreBanned"), variant: "destructive" });
+      return;
+    }
+    if (chatLocked) {
+      toast({ title: t("chatDisabledByHost") || "Le chat est désactivé par l'hôte.", variant: "destructive" });
+      return;
+    }
     // Threaded replies are now native (parent_id) via the chat endpoint.
     await sendLiveChat(newMessage.trim(), replyToDesktop?.id || null);
     setNewMessage("");
@@ -609,15 +710,23 @@ const LiveStream = () => {
   // Mobile chat for TikTok overlay
   useEffect(() => {
     if (!id || !isMobile) return;
-    setMobileChatMessages(chatMessages.map((m: any) => ({
+    setMobileChatMessages(visibleChatMessages.map((m: any) => ({
       ...m,
       reply_to_name: m.reply_to_name || undefined,
       reply_to_message: m.reply_to_message || undefined,
     })));
-  }, [chatMessages, isMobile, id]);
+  }, [visibleChatMessages, isMobile, id]);
 
   const sendMobileChatMessage = async (msg: string, parentId?: string | null) => {
     if (!currentUserId || !id) return;
+    if (isCurrentUserBanned) {
+      toast({ title: t("youAreBanned"), variant: "destructive" });
+      return;
+    }
+    if (chatLocked) {
+      toast({ title: t("chatDisabledByHost") || "Le chat est désactivé par l'hôte.", variant: "destructive" });
+      return;
+    }
     await sendLiveChat(msg, parentId ?? null);
   };
 
@@ -665,7 +774,10 @@ const LiveStream = () => {
             <Button variant="ghost" onClick={() => navigate("/lives")}>
               <ArrowLeft className="w-4 h-4 mr-2" /> {t("returnBtn")}
             </Button>
-            {live && <ShareButton contentType="live" contentId={id!} title={live.title || "Live"} />}
+            <div className="flex items-center gap-2">
+              {isArtist && currentUserId && <RecordingButton sourceType="live" sourceId={id!} />}
+              {live && <ShareButton contentType="live" contentId={id!} title={live.title || "Live"} />}
+            </div>
           </div>
         )}
 
@@ -857,6 +969,10 @@ const LiveStream = () => {
                   chatMessages={mobileChatMessages}
                   onSendMessage={sendMobileChatMessage}
                   currentUserId={currentUserId}
+                  canModerate={canModerate}
+                  onBanUser={(msg) => setBanTarget(msg)}
+                  chatDisabled={isCurrentUserBanned || chatLocked}
+                  chatDisabledLabel={isCurrentUserBanned ? t("youAreBanned") : (t("chatDisabledByHost") || "Le chat est désactivé par l'hôte.")}
                   hearts={hearts}
                   addHeart={addHeart}
                   floatingEmojis={floatingEmojis}
@@ -884,12 +1000,36 @@ const LiveStream = () => {
                   guestManagementContent={isArtist ? (
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">{t("liveChatTitle")}</span>
+                        <div className="flex items-center gap-2">
+                          <Button size="sm" variant="outline" onClick={() => setModeratorsOpen(true)} className="gap-1.5 text-xs">
+                            <Users className="w-3.5 h-3.5" /> {t("eventModeratorsTitle") || "Modérateurs"}
+                          </Button>
+                          <Switch
+                            checked={isChatEnabled}
+                            disabled={togglingChat}
+                            onCheckedChange={handleToggleChat}
+                            title={t("toggleChatLabel") || "Activer/désactiver le chat"}
+                          />
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between">
                         <span className="text-sm font-medium">{t("guestControls")}</span>
-                        <Button size="sm" variant={guestRequestsEnabled ? "default" : "outline"} onClick={() => setGuestRequestsEnabled(prev => !prev)} className="gap-1.5 text-xs">
+                        <Button size="sm" variant={guestRequestsEnabled ? "default" : "outline"} onClick={toggleGuestRequests} className="gap-1.5 text-xs">
                           {guestRequestsEnabled ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
                           {guestRequestsEnabled ? t("guestRequestsOn") : t("guestRequestsOff")}
                         </Button>
                       </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium flex items-center gap-1.5"><Heart className="w-3.5 h-3.5" /> Dédicaces</span>
+                        <Button size="sm" variant={dedicationsEnabled ? "default" : "outline"} onClick={toggleDedications} className="gap-1.5 text-xs">
+                          {dedicationsEnabled ? "Activées" : "Coupées"}
+                        </Button>
+                      </div>
+                      <Button size="sm" variant="outline" onClick={() => setShowDedicationsManager(true)} className="w-full gap-1.5 text-xs">
+                        <Heart className="w-3.5 h-3.5 text-pink-500" /> Dédicaces reçues
+                        {pendingDedicationCount > 0 && <Badge className="bg-destructive ml-1">{pendingDedicationCount}</Badge>}
+                      </Button>
                       {guestRequestsEnabled && (
                         <HostGuestControls
                           liveId={id!}
@@ -1079,11 +1219,20 @@ const LiveStream = () => {
                       <span className="text-sm font-medium flex items-center gap-2">
                         <UserPlus className="w-4 h-4" /> {t("guestControls")}
                       </span>
-                      <Button size="sm" variant={guestRequestsEnabled ? "default" : "outline"} onClick={() => setGuestRequestsEnabled(prev => !prev)} className="gap-1.5 text-xs">
+                      <Button size="sm" variant={guestRequestsEnabled ? "default" : "outline"} onClick={toggleGuestRequests} className="gap-1.5 text-xs">
                         {guestRequestsEnabled ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
                         {guestRequestsEnabled ? t("guestRequestsOn") : t("guestRequestsOff")}
                       </Button>
                     </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium flex items-center gap-2"><Heart className="w-4 h-4" /> Dédicaces</span>
+                      <Button size="sm" variant={dedicationsEnabled ? "default" : "outline"} onClick={toggleDedications} className="gap-1.5 text-xs">
+                        {dedicationsEnabled ? "Activées" : "Coupées"}
+                      </Button>
+                    </div>
+                    <Button size="sm" variant="outline" onClick={() => setShowDedicationsManager(true)} className="w-full gap-1.5 text-xs">
+                      <Heart className="w-3.5 h-3.5 text-pink-500" /> Dédicaces reçues
+                    </Button>
                     {guestRequestsEnabled && (
                       <HostGuestControls
                         liveId={id!}
@@ -1111,17 +1260,44 @@ const LiveStream = () => {
               roomType="live"
             />
             <QuickTip recipientIds={[{ id: live.artist_id, name: live.artist_name || "Artiste" }]} />
-            {!isArtist && currentUserId && (
-              <DedicationDialog concertId={id!} artistName={live.artist_name || "Artiste"} concertType="artist_live" />
+            {!isArtist && currentUserId && dedicationsEnabled && (
+              <DedicationDialog
+                concertId={id!}
+                artistName={live.artist_name || "Artiste"}
+                concertType="artist_live"
+                minPriceOverride={live.dedication_min_price_credits ?? null}
+              />
             )}
             <GiftLeaderboard liveId={id!} />
 
             {/* Chat */}
             <Card className="border-border">
               <CardContent className="p-3">
-                <h4 className="font-semibold text-sm mb-2">{t("liveChatTitle")}</h4>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-semibold text-sm">{t("liveChatTitle")}</h4>
+                  <div className="flex items-center gap-2">
+                    {canModerate && (
+                      <button
+                        type="button"
+                        onClick={() => setModeratorsOpen(true)}
+                        className="text-muted-foreground hover:text-primary transition-colors"
+                        title={t("eventModeratorsTitle") || "Modérateurs"}
+                      >
+                        <Users className="w-4 h-4" />
+                      </button>
+                    )}
+                    {isArtist && (
+                      <Switch
+                        checked={isChatEnabled}
+                        disabled={togglingChat}
+                        onCheckedChange={handleToggleChat}
+                        title={t("toggleChatLabel") || "Activer/désactiver le chat"}
+                      />
+                    )}
+                  </div>
+                </div>
                 <div className="h-[300px] overflow-y-auto overflow-x-hidden scrollbar-hidden space-y-2 mb-3 pr-1">
-                  {chatMessages.map((msg) => {
+                  {visibleChatMessages.map((msg) => {
                     const isReply = msg.parent_id && msg.reply_to_name;
                     return (
                       <div key={msg.id} className="flex items-start gap-2 group">
@@ -1147,6 +1323,15 @@ const LiveStream = () => {
                         >
                           <span className="text-xs">↩</span>
                         </button>
+                        {canModerate && msg.user_id !== currentUserId && (
+                          <button
+                            onClick={() => setBanTarget(msg)}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive shrink-0"
+                            title={t("banUserLabel")}
+                          >
+                            <Ban className="w-3 h-3" />
+                          </button>
+                        )}
                       </div>
                     );
                   })}
@@ -1161,23 +1346,31 @@ const LiveStream = () => {
                         <button onClick={() => setReplyToDesktop(null)} className="ml-auto text-muted-foreground hover:text-foreground">✕</button>
                       </div>
                     )}
+                    {chatLocked && (
+                      <div className="flex items-center gap-2 rounded-lg bg-muted/60 px-2 py-1.5 text-[11px] text-muted-foreground">
+                        <Lock className="w-3.5 h-3.5 shrink-0" />
+                        {t("chatDisabledByHost") || "Le chat est désactivé par l'hôte."}
+                      </div>
+                    )}
                     <div className="flex gap-2 items-center">
                       <div className="relative flex-1">
                         <Input
                           value={newMessage}
                           onChange={(e) => setNewMessage(e.target.value)}
                           onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-                          placeholder={t("writeMessagePlaceholder")}
+                          placeholder={isCurrentUserBanned ? t("youAreBanned") : chatLocked ? (t("chatDisabledByHost") || "Le chat est désactivé par l'hôte.") : t("writeMessagePlaceholder")}
+                          disabled={isCurrentUserBanned || chatLocked}
                           className="text-sm h-8 pr-8"
                         />
                         <button
                           onClick={() => setShowDesktopEmoji(v => !v)}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          disabled={isCurrentUserBanned || chatLocked}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground disabled:opacity-40"
                         >
                           😀
                         </button>
                       </div>
-                      <Button size="sm" onClick={sendMessage} className="h-8">
+                      <Button size="sm" onClick={sendMessage} disabled={isCurrentUserBanned || chatLocked} className="h-8">
                         {t("sendBtnLabel")}
                       </Button>
                     </div>
@@ -1197,6 +1390,34 @@ const LiveStream = () => {
         </div>
       </main>
       {!isMobile && <Footer />}
+      {/* Dédicaces reçues (artiste) — jusqu'ici totalement absent de la page live sur web :
+          sans ce panneau l'artiste ne voyait jamais les demandes envoyées par les spectateurs. */}
+      {isArtist && currentUserId && (
+        <Dialog open={showDedicationsManager} onOpenChange={setShowDedicationsManager}>
+          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+            <DialogTitle className="sr-only">Dédicaces reçues</DialogTitle>
+            <ArtistDedicationsManager artistId={currentUserId} />
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Chat moderation: ban confirmation + moderators appointment (mirrors ThreadedChat). */}
+      <ConfirmDialog
+        open={!!banTarget}
+        onOpenChange={(o) => !o && setBanTarget(null)}
+        title={t("banConfirmTitle")}
+        description={t("banConfirmDesc")}
+        confirmLabel={t("banUserLabel")}
+        variant="destructive"
+        onConfirm={confirmBan}
+      />
+      <EventModeratorsDialog
+        eventType="live"
+        eventId={id!}
+        isHost={isArtist}
+        open={moderatorsOpen}
+        onOpenChange={setModeratorsOpen}
+      />
     </div>
   );
 };

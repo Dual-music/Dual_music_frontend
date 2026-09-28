@@ -198,7 +198,10 @@ const ConcertDetail = () => {
               <Button size="lg" className="w-full" disabled>{t("concertEnded")}</Button>
             )}
 
-            {(concert as any).is_artist_concert && (concert as any).allows_dedications && !isOrganizer && currentUserId && concert.status !== "ended" && (
+            {/* Dédicaces UNIQUEMENT avant le direct pour un concert (contrairement au live, où c'est
+                possible pendant) : toutes les demandes doivent être traitées avant que le concert
+                ne démarre — le bouton disparaît dès que le statut passe à "live". */}
+            {(concert as any).is_artist_concert && (concert as any).allows_dedications && !isOrganizer && currentUserId && concert.status === "upcoming" && (
               <DedicationDialog concertId={concert.id} artistName={concert.artist_name} />
             )}
           </div>

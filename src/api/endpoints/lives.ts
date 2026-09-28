@@ -44,6 +44,14 @@ export function updateStatus(id: string, status: "live" | "ended" | "upcoming"):
   return http.patch(`/lives/${id}`, { status });
 }
 
+/** PATCH /lives/:id/settings — host/admin toggles dedications/guest-invites/chat, live. */
+export function updateSettings(
+  id: string,
+  input: { allowsDedications?: boolean; dedicationMinPriceCredits?: number | null; allowGuests?: boolean; chatEnabled?: boolean },
+): Promise<Record<string, unknown>> {
+  return http.patch(`/lives/${id}/settings`, input);
+}
+
 /** DELETE /lives/join-requests/:id — requester (or host/admin) cancels a request. */
 export function cancelJoinRequest(id: string): Promise<Record<string, unknown>> {
   return http.delete(`/lives/join-requests/${id}`);

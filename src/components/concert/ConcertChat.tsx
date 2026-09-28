@@ -11,8 +11,13 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { Send, MessageCircle, Shield } from "lucide-react";
+import { Send, MessageCircle, Shield, Smile } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 interface ChatMessage {
   id: string;
@@ -34,6 +39,8 @@ const containsBadWords = (text: string): boolean => {
   return BAD_WORDS.some(word => lowerText.includes(word));
 };
 
+const EMOJI_REACTIONS = ["🔥", "❤️", "👏", "😂", "🎵", "💯", "🏆", "⭐", "🎤", "💎", "🦁", "👑"];
+
 export const ConcertChat = ({ concertId }: ConcertChatProps) => {
   const { toast } = useToast();
   const { t, language } = useLanguage();
@@ -42,6 +49,12 @@ export const ConcertChat = ({ concertId }: ConcertChatProps) => {
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const insertEmoji = (emoji: string) => {
+    setNewMessage(prev => prev + emoji);
+    inputRef.current?.focus();
+  };
 
   // Derive display rows (author name + avatar) from the hook messages.
   const messages: ChatMessage[] = useMemo(
@@ -159,8 +172,30 @@ export const ConcertChat = ({ concertId }: ConcertChatProps) => {
           )}
         </div>
 
-        <form onSubmit={handleSend} className="p-3 border-t flex gap-2">
+        <form onSubmit={handleSend} className="p-3 border-t flex gap-2 items-center">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button type="button" variant="ghost" size="icon" className="shrink-0" disabled={!currentUser}>
+                <Smile className="w-4 h-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-2" side="top" align="start">
+              <div className="grid grid-cols-6 gap-1">
+                {EMOJI_REACTIONS.map(emoji => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={() => insertEmoji(emoji)}
+                    className="text-xl p-1 hover:bg-muted rounded transition-colors"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
           <Input
+            ref={inputRef}
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
             placeholder={t("writeMessage")}

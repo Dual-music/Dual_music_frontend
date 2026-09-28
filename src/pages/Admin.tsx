@@ -46,14 +46,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Users, Music, Swords, Video, TrendingUp, UserCheck, Briefcase,
   DollarSign, CheckCircle, XCircle, Clock, Eye, Ban, Trash2,
   BarChart3, Radio, Shield, ExternalLink, CreditCard, Hash, Link2, StopCircle, ClipboardList,
-  Trophy, Gift, EyeOff, Settings, Megaphone
+  Trophy, Gift, EyeOff, Settings, Megaphone, Loader2
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { BlogManager } from "@/components/admin/BlogManager";
@@ -213,26 +213,33 @@ const InfoRow = ({ label, children }: { label: string; children: React.ReactNode
 
 // ─── Duel Request Row ─────────────────────────────────────────────────────────
 const DuelRequestRow = ({
-  request, managers, adminUserId, onApprove, onReject, getStatusBadge
+  request, managers, adminUserId, onApprove, onReject
 }: {
   request: DuelRequest; managers: Manager[]; adminUserId?: string | null;
-  onApprove: (managerId: string, scheduledDate?: string, ticketPrice?: number, allowsSponsorAds?: boolean) => void;
+  onApprove: (managerId: string, scheduledDate?: string, ticketPrice?: number, allowsSponsorAds?: boolean, acceptsSponsors?: boolean, sponsorSubmissionDeadline?: string | null) => Promise<void> | void;
   onReject: () => void;
-  getStatusBadge: (s: string) => JSX.Element;
 }) => {
+  const { t } = useLanguage();
   const dtz = getUiPrefs().timezone;
   const [selectedManager, setSelectedManager] = useState<string>(request.manager_id || "");
   // Valeur d'horloge (fuseau préféré) pour l'input datetime-local ; convertie en UTC à l'envoi.
   const [scheduledDate, setScheduledDate] = useState<string>(toTzInputValue(request.proposed_date, dtz));
   const [ticketPrice, setTicketPrice] = useState<number>(0);
   const [allowsSponsorAds, setAllowsSponsorAds] = useState<boolean>(true);
+  // Demandes de sponsor liées à ce duel : décision admin (pas de l'organisateur), prise ici au
+  // moment de l'approbation — distinct de `allowsSponsorAds` (diffusion des pubs déjà validées).
+  const [acceptsSponsors, setAcceptsSponsors] = useState<boolean>(true);
+  const [sponsorDeadline, setSponsorDeadline] = useState<string>("");
   const [isEditingDate, setIsEditingDate] = useState(false);
+  const [open, setOpen] = useState(false);
+  // Anti double-clic : sans ça, un second appel avant la fermeture du dialogue pouvait
+  // créer un second duel pour la même demande (le backend rejette maintenant ce cas,
+  // mais on évite déjà l'envoi en double côté UI).
+  const [submitting, setSubmitting] = useState(false);
   const { toast } = useToast();
 
   const canApprove = request.status === "accepted" || request.status === "admin_pending";
   const isApproved = request.status === "approved";
-
-  const managerName = managers.find(m => m.user_id === (request.manager_id))?.display_name || request.manager_name || "—";
 
   const handleUpdateDuelDate = async () => {
     if (!scheduledDate) return;
@@ -269,76 +276,117 @@ const DuelRequestRow = ({
     }
   };
 
+  const handleApprove = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      await onApprove(
+        selectedManager,
+        toWireUtc(scheduledDate, dtz) || undefined,
+        ticketPrice,
+        allowsSponsorAds,
+        acceptsSponsors,
+        acceptsSponsors ? toWireUtc(sponsorDeadline, dtz) : null,
+      );
+      // Only close on success — onApprove rethrows on failure (see handleDuelRequest)
+      // so the admin can fix the form and retry instead of losing their edits.
+      setOpen(false);
+    } catch {
+      // Error toast already shown by onApprove; keep the dialog open.
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (isApproved) {
+    return isEditingDate ? (
+      <div className="flex items-center gap-2">
+        <Input type="datetime-local" value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} className="w-[190px]" />
+        <Button size="sm" onClick={handleUpdateDuelDate} disabled={!scheduledDate}><CheckCircle className="w-4 h-4" /></Button>
+        <Button size="sm" variant="outline" onClick={() => setIsEditingDate(false)}><XCircle className="w-4 h-4" /></Button>
+      </div>
+    ) : (
+      <Button size="sm" variant="ghost" onClick={() => setIsEditingDate(true)}><Clock className="w-3 h-3 mr-1" />{t("adminModifyDate") || "Modifier la date"}</Button>
+    );
+  }
+
+  if (!canApprove) return null;
+
   return (
-    <tr className="border-b hover:bg-muted/20 transition-colors">
-      <td className="p-4 font-medium">{request.requester_name}</td>
-      <td className="p-4">{request.opponent_name}</td>
-      <td className="p-4">
-        {canApprove || isEditingDate ? (
-          <Input type="datetime-local" value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} className="w-[200px]" />
-        ) : (
-          <div className="flex items-center gap-2">
-            <span>{fmt(request.proposed_date)}</span>
-            {isApproved && <Button size="sm" variant="ghost" onClick={() => setIsEditingDate(true)}><Clock className="w-3 h-3 mr-1" />Modifier</Button>}
-          </div>
-        )}
-      </td>
-      <td className="p-4">{getStatusBadge(request.status)}</td>
-      <td className="p-4">
-        {canApprove ? (
-          <Select value={selectedManager} onValueChange={setSelectedManager}>
-            <SelectTrigger className="w-[200px]"><SelectValue placeholder="Sélectionner" /></SelectTrigger>
-            <SelectContent>
-              {adminUserId && (
-                <SelectItem value={adminUserId}>👑 Admin (moi) — joue le rôle de manager</SelectItem>
+    <>
+      <div className="flex gap-2">
+        <Button size="sm" className="bg-green-500 hover:bg-green-600" onClick={() => setOpen(true)}>
+          <CheckCircle className="w-4 h-4 mr-1" />{t("adminValidate") || "Valider"}
+        </Button>
+        <Button size="sm" variant="destructive" onClick={onReject}><XCircle className="w-4 h-4 mr-1" />{t("adminReject") || "Rejeter"}</Button>
+      </div>
+      <Dialog open={open} onOpenChange={(v) => !submitting && setOpen(v)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t("adminApproveDuelTitle") || "Valider le duel"} — {request.requester_name} vs {request.opponent_name}</DialogTitle>
+          </DialogHeader>
+          <ScrollArea className="max-h-[65vh]">
+            <div className="space-y-4 pr-3">
+              <div className="space-y-1">
+                <span className="text-sm text-muted-foreground">{t("adminColProposedDate") || "Date"}</span>
+                <Input type="datetime-local" value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <span className="text-sm text-muted-foreground">{t("adminAssignedManager") || "Manager"}</span>
+                <Select value={selectedManager} onValueChange={setSelectedManager}>
+                  <SelectTrigger><SelectValue placeholder={t("adminSelectManager") || "Sélectionner"} /></SelectTrigger>
+                  <SelectContent>
+                    {adminUserId && (
+                      <SelectItem value={adminUserId}>👑 {t("adminManagerRoleSelf") || "Admin (moi) — joue le rôle de manager"}</SelectItem>
+                    )}
+                    {managers.map((m) => <SelectItem key={m.id} value={m.user_id}>{m.display_name || "Manager"}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <span className="text-sm text-muted-foreground">{t("adminTicketPrice") || "Prix du ticket"}</span>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={0}
+                    step={0.5}
+                    value={ticketPrice}
+                    onChange={(e) => setTicketPrice(Number(e.target.value))}
+                    className="w-[120px]"
+                  />
+                  <span className="text-xs text-muted-foreground">{ticketPrice === 0 ? (t("free") || "Gratuit") : `${ticketPrice} $`}</span>
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                <input type="checkbox" checked={allowsSponsorAds} onChange={(e) => setAllowsSponsorAds(e.target.checked)} className="h-4 w-4" />
+                {t("adminAllowSponsorAds") || "Autoriser les publicités sponsor"}
+              </label>
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                <input type="checkbox" checked={acceptsSponsors} onChange={(e) => setAcceptsSponsors(e.target.checked)} className="h-4 w-4" />
+                {t("adminAcceptsSponsorRequests") || "Demandes de sponsor liées à ce duel"}
+              </label>
+              {acceptsSponsors && (
+                <div className="space-y-1">
+                  <span className="text-sm text-muted-foreground">{t("adminSponsorDeadline") || "Date de fin des demandes de sponsor"}</span>
+                  <Input type="datetime-local" value={sponsorDeadline} onChange={(e) => setSponsorDeadline(e.target.value)} />
+                </div>
               )}
-              {managers.map((m) => <SelectItem key={m.id} value={m.user_id}>{m.display_name || "Manager"}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        ) : (
-          <span className="text-sm">{managerName}</span>
-        )}
-      </td>
-      <td className="p-4">
-        {canApprove && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <Input
-                type="number"
-                min={0}
-                step={0.5}
-                value={ticketPrice}
-                onChange={(e) => setTicketPrice(Number(e.target.value))}
-                className="w-[100px]"
-                placeholder="Prix $"
-              />
-              <span className="text-xs text-muted-foreground">{ticketPrice === 0 ? "Gratuit" : `${ticketPrice} $`}</span>
             </div>
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={allowsSponsorAds}
-                onChange={(e) => setAllowsSponsorAds(e.target.checked)}
-                className="h-3.5 w-3.5"
-              />
-              Autoriser les publicités sponsor
-            </label>
-            <div className="flex gap-2">
-              <Button size="sm" className="bg-green-500 hover:bg-green-600" onClick={() => onApprove(selectedManager, toWireUtc(scheduledDate, dtz) || undefined, ticketPrice, allowsSponsorAds)} disabled={!selectedManager || !scheduledDate}>
-                <CheckCircle className="w-4 h-4" />
-              </Button>
-              <Button size="sm" variant="destructive" onClick={onReject}><XCircle className="w-4 h-4" /></Button>
-            </div>
-          </div>
-        )}
-        {isEditingDate && (
-          <div className="flex gap-2">
-            <Button size="sm" onClick={handleUpdateDuelDate} disabled={!scheduledDate}><CheckCircle className="w-4 h-4" /></Button>
-            <Button size="sm" variant="outline" onClick={() => setIsEditingDate(false)}><XCircle className="w-4 h-4" /></Button>
-          </div>
-        )}
-      </td>
-    </tr>
+          </ScrollArea>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={submitting}>{t("cancel") || "Annuler"}</Button>
+            <Button
+              className="bg-green-500 hover:bg-green-600"
+              onClick={handleApprove}
+              disabled={!selectedManager || !scheduledDate || submitting}
+            >
+              {submitting ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-1" />}
+              {t("adminConfirmApproval") || "Confirmer"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 };
 
@@ -593,7 +641,7 @@ const Admin = () => {
     }
   };
 
-  const handleDuelRequest = async (requestId: string, status: "approved" | "rejected", managerId?: string, scheduledDate?: string, ticketPrice?: number, allowsSponsorAds?: boolean) => {
+  const handleDuelRequest = async (requestId: string, status: "approved" | "rejected", managerId?: string, scheduledDate?: string, ticketPrice?: number, allowsSponsorAds?: boolean, acceptsSponsors?: boolean, sponsorSubmissionDeadline?: string | null) => {
     const duelReq = duelRequests.find(r => r.id === requestId);
     try {
       if (status === "approved" && !managerId) {
@@ -609,6 +657,8 @@ const Admin = () => {
           scheduledDate: scheduledDate || duelReq.proposed_date,
           ticketPrice: ticketPrice ?? 0,
           allowsSponsorAds: allowsSponsorAds ?? true,
+          acceptsSponsors: acceptsSponsors ?? true,
+          sponsorSubmissionDeadline: acceptsSponsors ? (sponsorSubmissionDeadline ?? null) : null,
         });
       } else {
         await adminApi.rejectDuelRequest(requestId);
@@ -617,6 +667,9 @@ const Admin = () => {
       await loadDashboardData();
     } catch (error: any) {
       toast({ title: t("error"), description: error.message, variant: "destructive" });
+      // Rethrown so the approval dialog (DuelRequestRow) knows to stay open on failure
+      // instead of closing as if the duel had actually been created.
+      throw error;
     }
   };
 
@@ -1207,9 +1260,8 @@ const Admin = () => {
                                   request={request}
                                   managers={managers}
                                   adminUserId={adminRef.current?.id || null}
-                                  onApprove={(managerId, scheduledDate, ticketPrice, allowsSponsorAds) => handleDuelRequest(request.id, "approved", managerId, scheduledDate, ticketPrice, allowsSponsorAds)}
+                                  onApprove={(managerId, scheduledDate, ticketPrice, allowsSponsorAds, acceptsSponsors, sponsorSubmissionDeadline) => handleDuelRequest(request.id, "approved", managerId, scheduledDate, ticketPrice, allowsSponsorAds, acceptsSponsors, sponsorSubmissionDeadline)}
                                   onReject={() => handleDuelRequest(request.id, "rejected")}
-                                  getStatusBadge={statusBadge}
                                 />
                               )}
                             </div>

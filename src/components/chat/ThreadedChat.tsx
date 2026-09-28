@@ -12,11 +12,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { Send, MessageCircle, Shield, Smile, Reply, X, Ban } from "lucide-react";
+import { Send, MessageCircle, Shield, Smile, Reply, X, Ban, Users, Lock } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useStreamBan, StreamType } from "@/hooks/useStreamBan";
+import { useEventModerators } from "@/hooks/useEventModerators";
+import { useEventChatEnabled } from "@/hooks/useEventChatEnabled";
+import { EventModeratorsDialog } from "@/components/moderation/EventModeratorsDialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 interface ChatMessage {
@@ -41,8 +45,14 @@ interface ThreadedChatProps {
    * - live / concert: artist_id (host)
    * - competition: manager_id
    * When provided AND equals the current user, ban controls become available.
+   * Appointed moderators (see `useEventModerators`) get the same ban/hide
+   * powers, but never the chat on/off toggle below — host-exclusive.
    */
   hostId?: string | null;
+  /** Current `chat_enabled` value from the entity (defaults to true). */
+  chatEnabled?: boolean | null;
+  /** Host-only: persists a chat on/off toggle via the entity's own update endpoint. */
+  onToggleChat?: (enabled: boolean) => Promise<unknown> | void;
 }
 
 const BAD_WORDS = ["spam", "scam", "idiot", "stupid", "hate", "kill"];
@@ -53,7 +63,7 @@ const containsBadWords = (text: string): boolean => {
 const EMOJI_REACTIONS = ["🔥", "❤️", "👏", "😂", "🎵", "💯", "🏆", "⭐", "🎤", "💎", "🦁", "👑"];
 
 
-export const ThreadedChat = ({ chatType, entityId, participants = [], hostId }: ThreadedChatProps) => {
+export const ThreadedChat = ({ chatType, entityId, participants = [], hostId, chatEnabled, onToggleChat }: ThreadedChatProps) => {
   const { toast } = useToast();
   const { t, language } = useLanguage();
   const { user: currentUser } = useAuth();
@@ -62,6 +72,8 @@ export const ThreadedChat = ({ chatType, entityId, participants = [], hostId }: 
   const [sending, setSending] = useState(false);
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [banTarget, setBanTarget] = useState<ChatMessage | null>(null);
+  const [moderatorsOpen, setModeratorsOpen] = useState(false);
+  const [togglingChat, setTogglingChat] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -72,7 +84,21 @@ export const ThreadedChat = ({ chatType, entityId, participants = [], hostId }: 
     currentUserId: currentUser?.id,
   });
 
-  const canModerate = !!currentUser && !!hostId && currentUser.id === hostId;
+  const isHost = !!currentUser && !!hostId && currentUser.id === hostId;
+  const { isAppointedModerator } = useEventModerators({ eventType: chatType, eventId: entityId, isHost });
+  const canModerate = isHost || isAppointedModerator(currentUser?.id);
+  const isChatEnabled = useEventChatEnabled(chatType, entityId, chatEnabled);
+  const chatLocked = !isChatEnabled;
+
+  const handleToggleChat = async (next: boolean) => {
+    if (!onToggleChat) return;
+    setTogglingChat(true);
+    try {
+      await onToggleChat(next);
+    } finally {
+      setTogglingChat(false);
+    }
+  };
 
   // Derive display rows (author names, reply previews) from the hook messages.
   const messages: ChatMessage[] = useMemo(() => {
@@ -110,6 +136,11 @@ export const ThreadedChat = ({ chatType, entityId, participants = [], hostId }: 
 
     if (isCurrentUserBanned) {
       toast({ title: t("youAreBanned"), variant: "destructive" });
+      return;
+    }
+
+    if (chatLocked) {
+      toast({ title: t("chatDisabledByHost") || "Le chat est désactivé par l'hôte.", variant: "destructive" });
       return;
     }
 
@@ -164,8 +195,28 @@ export const ThreadedChat = ({ chatType, entityId, participants = [], hostId }: 
         <CardTitle className="text-lg flex items-center gap-2">
           <MessageCircle className="w-5 h-5 text-primary" />
           {chatType === "concert" ? t("concertChat") : t("liveChat")}
-          <span className="ml-auto" title={t("autoModeration")}>
-            <Shield className="w-4 h-4 text-green-500" />
+          <span className="ml-auto flex items-center gap-2">
+            {canModerate && (
+              <button
+                type="button"
+                onClick={() => setModeratorsOpen(true)}
+                className="text-muted-foreground hover:text-primary transition-colors"
+                title={t("eventModeratorsTitle") || "Modérateurs"}
+              >
+                <Users className="w-4 h-4" />
+              </button>
+            )}
+            {isHost && onToggleChat && (
+              <Switch
+                checked={isChatEnabled}
+                disabled={togglingChat}
+                onCheckedChange={handleToggleChat}
+                title={t("toggleChatLabel") || "Activer/désactiver le chat"}
+              />
+            )}
+            <span title={t("autoModeration")}>
+              <Shield className="w-4 h-4 text-green-500" />
+            </span>
           </span>
         </CardTitle>
       </CardHeader>
@@ -249,10 +300,16 @@ export const ThreadedChat = ({ chatType, entityId, participants = [], hostId }: 
           </div>
         )}
 
+        {chatLocked && (
+          <div className="mx-3 mb-2 flex items-center gap-2 rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+            <Lock className="w-3.5 h-3.5 shrink-0" />
+            {t("chatDisabledByHost") || "Le chat est désactivé par l'hôte."}
+          </div>
+        )}
         <form onSubmit={handleSend} className="p-3 border-t flex gap-2 items-center">
           <Popover>
             <PopoverTrigger asChild>
-              <Button type="button" variant="ghost" size="icon" className="shrink-0" disabled={isCurrentUserBanned}>
+              <Button type="button" variant="ghost" size="icon" className="shrink-0" disabled={isCurrentUserBanned || chatLocked}>
                 <Smile className="w-4 h-4" />
               </Button>
             </PopoverTrigger>
@@ -278,15 +335,17 @@ export const ThreadedChat = ({ chatType, entityId, participants = [], hostId }: 
             placeholder={
               isCurrentUserBanned
                 ? t("youAreBanned")
-                : replyTo
-                  ? `${t("replyToPlaceholder")} ${replyTo.user_name}...`
-                  : "Message..."
+                : chatLocked
+                  ? t("chatDisabledByHost") || "Le chat est désactivé par l'hôte."
+                  : replyTo
+                    ? `${t("replyToPlaceholder")} ${replyTo.user_name}...`
+                    : "Message..."
             }
             maxLength={200}
-            disabled={!currentUser || isCurrentUserBanned}
+            disabled={!currentUser || isCurrentUserBanned || chatLocked}
             className="flex-1"
           />
-          <Button type="submit" size="icon" disabled={sending || !currentUser || isCurrentUserBanned}>
+          <Button type="submit" size="icon" disabled={sending || !currentUser || isCurrentUserBanned || chatLocked}>
             <Send className="w-4 h-4" />
           </Button>
         </form>
@@ -300,6 +359,13 @@ export const ThreadedChat = ({ chatType, entityId, participants = [], hostId }: 
         confirmLabel={t("banUserLabel")}
         variant="destructive"
         onConfirm={confirmBan}
+      />
+      <EventModeratorsDialog
+        eventType={chatType}
+        eventId={entityId}
+        isHost={isHost}
+        open={moderatorsOpen}
+        onOpenChange={setModeratorsOpen}
       />
     </Card>
   );

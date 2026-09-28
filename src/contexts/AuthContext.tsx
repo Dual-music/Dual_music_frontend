@@ -51,8 +51,8 @@ interface AuthContextValue {
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (input: RegisterInput) => Promise<AuthUser>;
   signOut: () => Promise<void>;
-  /** Re-fetches `/auth/me` (e.g. after a role/profile change). */
-  refreshMe: () => Promise<void>;
+  /** Re-fetches `/auth/me` (e.g. after a role/profile change). Returns the fresh data, or null on failure. */
+  refreshMe: () => Promise<MeResponse | null>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -81,9 +81,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const data = await authApi.me();
       if (mounted.current) applyMe(data);
+      return data;
     } catch {
       clearTokens();
       if (mounted.current) clearSession();
+      return null;
     }
   }, [applyMe, clearSession]);
 

@@ -5,7 +5,7 @@
  * publie via `WebRTCHost` (LiveKit SFU) ; les spectateurs consomment via
  * `WebRTCViewer`. Inclut chat, cadeaux (`ConcertGiftPanel`), pourboires
  * rapides (`QuickTip`), classement donateurs (`GiftLeaderboard`), minuteur
- * de durée (`ConcertDurationTimer`), enregistrement (`ConcertRecordingControls`)
+ * de durée (`ConcertDurationTimer`), enregistrement (`RecordingButton`, serveur)
  * et persistance des likes (`live_likes`).
  *
  * Garde-fous d'accès :
@@ -595,7 +595,13 @@ const ConcertLive = () => {
               />
             )}
             <div className="h-[400px] overflow-hidden">
-              <ThreadedChat chatType="concert" entityId={id!} hostId={(concert as any)?.artist_id ?? null} />
+              <ThreadedChat
+                chatType="concert"
+                entityId={id!}
+                hostId={(concert as any)?.artist_id ?? null}
+                chatEnabled={(concert as any)?.chat_enabled}
+                onToggleChat={(enabled) => concertsApi.updateArtistConcert(id!, { chatEnabled: enabled })}
+              />
             </div>
           </div>
         </div>

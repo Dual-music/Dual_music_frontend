@@ -56,30 +56,33 @@ export const CompetitionGiftPanel = ({ candidates, profiles, competitionId, mana
   );
 
 
-  useEffect(() => {
+  const fetchUserGifts = async () => {
     if (!user) return;
-    (async () => {
-      try {
-        const inv = (await gifts.myInventory()) as any[];
-        // Endpoint returns flat rows { gift_id, quantity, name, price, image_url };
-        // reshape into the nested `virtual_gifts` form this panel renders.
-        setInventory(
-          (inv || []).map((r) => ({
-            quantity: r.quantity,
-            gift_id: r.gift_id,
-            virtual_gifts: {
-              id: r.gift_id,
-              name: r.name,
-              emoji: r.emoji ?? "🎁",
-              price: r.price,
-              image_url: r.image_url ?? null,
-            },
-          })),
-        );
-      } catch {
-        setInventory([]);
-      }
-    })();
+    try {
+      const inv = (await gifts.myInventory()) as any[];
+      // Endpoint returns flat rows { gift_id, quantity, name, price, image_url };
+      // reshape into the nested `virtual_gifts` form this panel renders.
+      setInventory(
+        (inv || []).map((r) => ({
+          quantity: r.quantity,
+          gift_id: r.gift_id,
+          virtual_gifts: {
+            id: r.gift_id,
+            name: r.name,
+            emoji: r.emoji ?? "🎁",
+            price: r.price,
+            image_url: r.image_url ?? null,
+          },
+        })),
+      );
+    } catch {
+      setInventory([]);
+    }
+  };
+
+  useEffect(() => {
+    fetchUserGifts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const send = async () => {
@@ -226,7 +229,7 @@ export const CompetitionGiftPanel = ({ candidates, profiles, competitionId, mana
           <ShoppingBag className="w-4 h-4" /> {t("giftShop") || "Boutique"}
         </Button>
 
-        <GiftShopDialog open={shopOpen} onOpenChange={setShopOpen} />
+        <GiftShopDialog open={shopOpen} onOpenChange={setShopOpen} onPurchase={fetchUserGifts} />
       </CardContent>
     </Card>
   );

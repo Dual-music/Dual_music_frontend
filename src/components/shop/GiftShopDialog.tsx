@@ -29,9 +29,12 @@ interface UserGift { id: string; gift_id: string; quantity: number; }
 interface Props {
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  /** Appelé après un achat réussi — le panneau appelant doit recharger SON propre inventaire
+   * (ex. la liste "mes cadeaux" à envoyer), qui ne l'observe pas automatiquement sinon. */
+  onPurchase?: () => void;
 }
 
-export const GiftShopDialog = ({ open, onOpenChange }: Props) => {
+export const GiftShopDialog = ({ open, onOpenChange, onPurchase }: Props) => {
   const { t } = useLanguage();
   const { toast } = useToast();
   const { balance } = useWallet();
@@ -78,6 +81,7 @@ export const GiftShopDialog = ({ open, onOpenChange }: Props) => {
       await wallet.purchaseGift({ giftId: g.id, quantity: 1 }, crypto.randomUUID());
       toast({ title: t("purchaseSuccess"), description: `1x ${g.name}` });
       load();
+      onPurchase?.();
     } catch {
       toast({ title: t("errorTitle") || "Erreur", description: t("purchaseErrGeneric"), variant: "destructive" });
     } finally {

@@ -50,6 +50,7 @@ import PerformerController from "@/components/competition/PerformerController";
 import CompetitionFinalRanking from "@/components/competition/CompetitionFinalRanking";
 import { RecordingButton } from "@/components/recording/RecordingButton";
 import { BannedAccessGate } from "@/components/streaming/BannedAccessGate";
+import { ScheduledAccessGate } from "@/components/scheduling/ScheduledAccessGate";
 import SponsorAdBroadcast from "@/components/sponsor/SponsorAdBroadcast";
 import TopDonorBubble from "@/components/animations/TopDonorBubble";
 import { FloatingHearts, useBroadcastHearts, formatLikeCount } from "@/components/animations/FloatingHearts";
@@ -61,6 +62,7 @@ import { StandardGiftNotification } from "@/components/animations/StandardGiftNo
 import { Trophy, Heart, Users } from "lucide-react";
 import { AuthRequiredDialog } from "@/components/auth/AuthRequiredDialog";
 import { GiftLeaderboard } from "@/components/duel/GiftLeaderboard";
+import { WinnerAnnouncement } from "@/components/animations/WinnerAnnouncement";
 
 interface GiftAnim {
   eventId: string;
@@ -88,6 +90,9 @@ const CompetitionLive = () => {
   const viewerCount = usePresence("competition", id ?? null);
   const [peerCount, setPeerCount] = useState(0);
   const [controls, setControls] = useState<CompetitionStageControls | null>(null);
+  // Bande de vignettes multi-cam (compétition en ligne, plusieurs candidats) actuellement
+  // affichée — décale le rail d'icônes de MobileStreamOverlay pour ne pas s'y superposer.
+  const [thumbsVisible, setThumbsVisible] = useState(false);
   const [activeGiftAnim, setActiveGiftAnim] = useState<GiftAnim | null>(null);
 
   const videoContainerRef = useRef<HTMLDivElement>(null);
@@ -108,11 +113,68 @@ const CompetitionLive = () => {
   const myCandidate = candidates.find((c) => c.artist_id === user?.id && c.status === "approved");
   const isApprovedCandidate = !!myCandidate;
 
-  const { isCurrentUserBanned } = useStreamBan({
+  const { isCurrentUserBanned, bannedIds, banUser } = useStreamBan({
     streamType: "competition" as any,
     streamId: id || "",
     currentUserId: user?.id,
   });
+
+  // Micro coupé d'autorité par l'organisateur — diffusion éphémère peer-to-peer (parité duel
+  // `duel-mute-<id>`, pas de colonne backend : c'est un contrôle en direct, pas un état persisté).
+  const [mutedArtistIds, setMutedArtistIds] = useState<Set<string>>(new Set());
+  const { broadcast: broadcastMute } = useRoomBroadcast(id ? `competition-mute-${id}` : null, (event, payload) => {
+    const artistId = (payload as { artistId?: string })?.artistId;
+    if (!artistId) return;
+    setMutedArtistIds((prev) => {
+      const next = new Set(prev);
+      if (event === "FORCE_MUTE") next.add(artistId); else if (event === "FORCE_UNMUTE") next.delete(artistId);
+      return next;
+    });
+  });
+  const toggleMuteArtist = (artistId: string) => {
+    const shouldMute = !mutedArtistIds.has(artistId);
+    setMutedArtistIds((prev) => {
+      const next = new Set(prev);
+      if (shouldMute) next.add(artistId); else next.delete(artistId);
+      return next;
+    });
+    broadcastMute(shouldMute ? "FORCE_MUTE" : "FORCE_UNMUTE", { artistId });
+  };
+  const banCandidate = async (artistId: string) => {
+    const ok = await banUser(artistId);
+    if (ok) toast({ title: t("userBannedSuccess") || "Utilisateur banni" });
+  };
+
+  // Célébration du vainqueur (aperçu, ne clôture PAS la compétition) — diffusion éphémère
+  // peer-to-peer sur `competition-winner-<id>`, parité duel ET mobile (`announceWinnerAuto` /
+  // `competition-winner-<id>` déjà émis côté Android) : le web n'avait aucun listener pour ce
+  // canal, donc l'annonce ne s'affichait que sur l'appareil du manager qui la déclenchait —
+  // jamais chez les autres spectateurs, y compris sur web (signalé — comparé au fonctionnement
+  // déjà correct de la pub sponsor, qui elle est un vrai événement serveur écouté par tous).
+  const [winnerAnnouncement, setWinnerAnnouncement] = useState<{ name: string; avatar: string | null; votes: number; percent?: number } | null>(null);
+  const { broadcast: broadcastWinner } = useRoomBroadcast(id ? `competition-winner-${id}` : null, (event, payload) => {
+    if (event === "winner_announced") setWinnerAnnouncement(payload as { name: string; avatar: string | null; votes: number; percent?: number });
+    else if (event === "winner_stopped") setWinnerAnnouncement(null);
+  });
+  const announceWinner = () => {
+    const ranked = [...candidates].sort(
+      (a, b) => (Number(b.total_votes) + Number(b.total_gifts_credits)) - (Number(a.total_votes) + Number(a.total_gifts_credits)),
+    );
+    const top = ranked[0];
+    if (!top) return;
+    const winnerProfile = profiles[top.artist_id];
+    const payload = {
+      name: winnerProfile?.full_name || t("compWinner") || "Vainqueur",
+      avatar: winnerProfile?.avatar_url || null,
+      votes: Number(top.total_votes) + Number(top.total_gifts_credits),
+    };
+    setWinnerAnnouncement(payload);
+    broadcastWinner("winner_announced", payload);
+  };
+  const handleStopWinnerAnnouncement = () => {
+    setWinnerAnnouncement(null);
+    broadcastWinner("winner_stopped", {});
+  };
 
   // --- Hearts (likes) + emojis broadcasts ---------------------------------
   const heartsChannelName = id ? `competition-hearts-${id}` : null;
@@ -178,6 +240,14 @@ const CompetitionLive = () => {
   // (backend émet `performer`) → on recharge la compétition pour rafraîchir le minuteur.
   useRoomEvent("/live", "competition", id ?? null, "performer", () => {
     loadComp();
+  });
+
+  // Realtime scores/gifts sync — backend émet `candidates:updated` sur la room
+  // compétition après un vote (public/jury) ou un cadeau ciblé sur un candidat.
+  // On recharge les candidats pour rafraîchir le classement (voix + cadeaux) et
+  // le top donateur, sans actualisation manuelle, en parité mobile.
+  useRoomEvent("/live", "competition", id ?? null, "candidates:updated", () => {
+    loadCandidates();
   });
 
   // --- Gift animation broadcast listener (ephemeral peer broadcast) --------
@@ -358,7 +428,14 @@ const CompetitionLive = () => {
 
   const leaderboardContent = (
     <div className="space-y-3">
-      <CompetitionLeaderboard competitionId={comp.id} profiles={profiles} />
+      <CompetitionLeaderboard
+        competitionId={comp.id}
+        profiles={profiles}
+        isManager={isManager}
+        mutedArtistIds={mutedArtistIds}
+        onToggleMute={toggleMuteArtist}
+        onBanCandidate={banCandidate}
+      />
       <GiftLeaderboard competitionId={comp.id} />
     </div>
   );
@@ -374,6 +451,14 @@ const CompetitionLive = () => {
   const managerControlsContent = isManager ? (
     <div className="space-y-2">
       <PerformerController competitionId={comp.id} candidates={candidates} profiles={profiles} />
+      <Button
+        onClick={announceWinner}
+        className="w-full bg-yellow-500 hover:bg-yellow-600 text-black font-bold"
+        size="sm"
+        disabled={!!winnerAnnouncement || candidates.length === 0}
+      >
+        <Trophy className="w-4 h-4 mr-2" /> {t("announceWinner") || "Annoncer le vainqueur"}
+      </Button>
       <Button onClick={finalize} className="w-full" variant="default" size="sm">
         <Trophy className="w-4 h-4 mr-2" /> {t("compFinalize")}
       </Button>
@@ -403,6 +488,10 @@ const CompetitionLive = () => {
         onControlsReady={setControls}
         onPeerCountChange={setPeerCount}
         fullBleed={isMobile}
+        mutedArtistIds={mutedArtistIds}
+        bannedArtistIds={bannedIds}
+        profiles={profiles}
+        onThumbnailsVisibleChange={setThumbsVisible}
       />
       <FloatingHearts hearts={hearts} />
       <FloatingEmojis emojis={emojis} />
@@ -426,6 +515,17 @@ const CompetitionLive = () => {
     <div className="min-h-screen bg-background">
       <SEO title={`${comp.title} — ${t("compStatusLive")}`} description={comp.description || comp.title} />
       <Header />
+      <ScheduledAccessGate
+        type="competition"
+        scheduledAt={comp.start_at}
+        status={comp.status}
+        eventId={comp.id}
+        ticketPrice={comp.is_public_paid ? Number(comp.viewer_ticket_price) || 0 : 0}
+        isActor={isManager || isAdmin}
+        hasTicket={hasTicket}
+        isAuthenticated={!!user}
+        onPurchased={() => setHasTicket(true)}
+      />
 
       {/* Mobile: full-screen video container that MobileStreamOverlay overlays */}
       {isMobile && (
@@ -456,6 +556,7 @@ const CompetitionLive = () => {
             title={comp.title}
             artistName={currentPerformerName || comp.title}
             badgeLabel="COMPÉTITION"
+            hasTopThumbnails={thumbsVisible}
             isArtist={!!artistControlsConfig}
             artistControls={artistControlsConfig}
             description={comp.description}
@@ -475,7 +576,7 @@ const CompetitionLive = () => {
             {sponsorAdContent}
             <ShareButton contentType="duel" contentId={comp.id} title={comp.title} />
             {user && !isManager && (
-              <LiveReportButton liveId={comp.id} viewerCount={viewerCount} isArtist={isApprovedCandidate} streamType={"live"} />
+              <LiveReportButton liveId={comp.id} viewerCount={viewerCount} isArtist={isApprovedCandidate} streamType="competition" />
             )}
           </div>
         </div>
@@ -516,6 +617,8 @@ const CompetitionLive = () => {
                   chatType={"competition" as any}
                   entityId={comp.id}
                   hostId={comp.manager_id}
+                  chatEnabled={comp.chat_enabled}
+                  onToggleChat={(enabled) => competitionsApi.updateCompetition(comp.id, { chatEnabled: enabled })}
                 />
               </CardContent>
             </Card>
@@ -527,6 +630,17 @@ const CompetitionLive = () => {
           (so its `absolute inset-0` resolves against the video). On desktop
           the MobileStreamOverlay is intentionally not mounted. */}
 
+
+      {/* Célébration du vainqueur (aperçu, diffusée à tous — voir hook plus haut) */}
+      {winnerAnnouncement && (
+        <WinnerAnnouncement
+          winnerName={winnerAnnouncement.name}
+          winnerAvatar={winnerAnnouncement.avatar}
+          winnerVotes={winnerAnnouncement.votes}
+          onStop={handleStopWinnerAnnouncement}
+          canDismiss={isManager || isAdmin}
+        />
+      )}
 
       {/* Gift broadcast animation overlay */}
       {activeGiftAnim && (

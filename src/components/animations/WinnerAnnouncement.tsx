@@ -1,11 +1,12 @@
 /**
  * Annonce gagnant duel : overlay fullscreen post-duel avec confettis. Broadcast portal.
  */
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { usePlatformSetting } from "@/hooks/usePlatformSettings";
 
 interface WinnerAnnouncementProps {
   winnerName: string;
@@ -16,22 +17,24 @@ interface WinnerAnnouncementProps {
   canDismiss?: boolean;
 }
 
-// Foule qui acclame + applaudissements (mixkit "Crowd cheering and applauding").
-const applauseUrl = "https://assets.mixkit.co/active_storage/sfx/1011/1011-preview.mp3";
+// Fanfare de victoire par défaut, utilisée tant que l'admin n'a pas téléversé son propre son
+// (réglage `winner_sound_url`, Admin → Config plateforme → « Son de l'annonce du vainqueur »).
+const DEFAULT_APPLAUSE_URL = "https://assets.mixkit.co/active_storage/sfx/2010/2010-preview.mp3";
 
 export const WinnerAnnouncement = ({ winnerName, winnerAvatar, winnerVotes, onStop, canDismiss = true }: WinnerAnnouncementProps) => {
   const [show, setShow] = useState(true);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const { t } = useLanguage();
+  const { data: customSoundUrl } = usePlatformSetting<string | null>("winner_sound_url", null);
 
+  // Joué en boucle tant que l'annonce reste affichée (jusqu'à ce que le manager l'arrête —
+  // l'arrêt du son suit automatiquement le démontage du composant à ce moment-là).
   useEffect(() => {
-    const audio = new Audio(applauseUrl);
+    const audio = new Audio(customSoundUrl || DEFAULT_APPLAUSE_URL);
     audio.volume = 0.7;
     audio.loop = true;
     audio.play().catch(() => {});
-    audioRef.current = audio;
-    return () => { audio.pause(); audio.src = ""; audioRef.current = null; };
-  }, []);
+    return () => { audio.pause(); audio.src = ""; };
+  }, [customSoundUrl]);
 
   if (!show) return null;
 
@@ -65,7 +68,16 @@ export const WinnerAnnouncement = ({ winnerName, winnerAvatar, winnerVotes, onSt
         <motion.div
           initial={{ scale: 0, rotate: -180 }}
           animate={{ scale: [0, 1.2, 1], rotate: [-180, 10, 0] }}
-          transition={{ duration: 1, type: "spring", stiffness: 150 }}
+          // `type: "tween"` (pas "spring") : Framer Motion ne supporte les animations
+          // spring/inertia qu'avec DEUX valeurs (départ → arrivée), jamais une séquence de
+          // keyframes comme ici (0 → 1.2 → 1 pour l'effet de rebond). Avec spring, ça levait une
+          // erreur JS non interceptée PENDANT le montage — invisible pour l'auteur de l'annonce
+          // (son propre `setWinnerAnnouncement` local avait déjà affiché le fond noir avant le
+          // crash) mais bloquant tout le contenu (couronne, avatar, nom, votes) chez les
+          // spectateurs qui recevaient l'annonce par diffusion temps réel : le fond noir
+          // apparaissait (bloquant bien les clics, d'où l'illusion que « ça prenait »), mais rien
+          // à l'intérieur ne s'affichait jamais.
+          transition={{ duration: 1, type: "tween", ease: "easeOut" }}
           className="relative z-10 flex flex-col items-center text-center px-4"
         >
           {/* Crown */}

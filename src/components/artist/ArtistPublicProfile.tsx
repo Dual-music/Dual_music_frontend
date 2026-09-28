@@ -52,6 +52,7 @@ export const ArtistPublicProfile = ({ userId }: ArtistPublicProfileProps) => {
   const { t } = useLanguage();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [coverUploading, setCoverUploading] = useState(false);
   const [profile, setProfile] = useState<ArtistProfile | null>(null);
   const [formData, setFormData] = useState({
     stage_name: "",
@@ -203,6 +204,7 @@ export const ArtistPublicProfile = ({ userId }: ArtistPublicProfileProps) => {
           <ImageUpload
             value={formData.cover_image_url}
             onChange={(url) => setFormData({...formData, cover_image_url: url})}
+            onUploadingChange={setCoverUploading}
             label={t("artistFormCoverLabel")}
             folder="artist-covers"
           />
@@ -305,7 +307,7 @@ export const ArtistPublicProfile = ({ userId }: ArtistPublicProfileProps) => {
             </div>
           </div>
 
-          <Button onClick={handleSave} disabled={saving} className="w-full">
+          <Button onClick={handleSave} disabled={saving || coverUploading} className="w-full">
             <Save className="w-4 h-4 mr-2" />
             {saving ? t("artistFormSaving") : t("artistFormSave")}
           </Button>

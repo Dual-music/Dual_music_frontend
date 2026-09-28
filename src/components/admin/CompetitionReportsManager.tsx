@@ -1,20 +1,12 @@
 /**
- * LiveReportsManager
- * ------------------
- * File d'attente admin des signalements de streams (`live_reports`).
- *
- * Actions par signalement :
- *  - Marquer "traité" (status = reviewed)
- *  - Rejeter (status = dismissed)
- *  - Bannir le streamer (déclenche un PlatformBan)
- *  - Stopper le live immédiatement
- *
- * Affiche : type de stream, signaleur, motif, occurrences, statut.
+ * CompetitionReportsManager
+ * -------------------------
+ * File d'attente admin des signalements de compétitions (`competition_reports`) — jusqu'ici sans
+ * aucune interface admin : les signalements existaient en base mais l'admin ne les voyait jamais
+ * (contrairement aux lives/concerts/duels, déjà couverts par `LiveReportsManager`).
  */
 import { useEffect, useState } from "react";
 import { listReports, reviewReport } from "@/api/endpoints/moderation";
-import { titlesByIds } from "@/api/endpoints/lives";
-import { titlesByIds as concertTitlesByIds } from "@/api/endpoints/concerts";
 import { getDisplayProfiles } from "@/api/endpoints/users";
 import { ApiError } from "@/api/http";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,42 +17,25 @@ import { useToast } from "@/hooks/use-toast";
 import { useUiPreferences } from "@/hooks/useUiPreferences";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { formatTz } from "@/lib/datetime";
-import { AlertTriangle, CheckCircle2, XCircle, Radio } from "lucide-react";
+import { AlertTriangle, CheckCircle2, XCircle, Trophy } from "lucide-react";
 
-interface LiveReportRow {
+interface CompetitionReportRow {
   id: string;
-  live_id: string;
-  user_id: string;
+  competition_id: string;
+  reporter_id: string;
   reason: string;
   details: string | null;
   status: string;
   created_at: string;
-  /** 'live' | 'concert' | 'duel' — `live_reports` est la table générique des 3 types. */
-  event_type?: string;
   reporter_name?: string;
-  live_title?: string | null;
 }
 
-const EVENT_TYPE_LABEL: Record<string, string> = { live: "Live", concert: "Concert", duel: "Duel" };
-
-/** Lien direct vers l'événement signalé — même construction que le backend (notification admin). */
-function eventDeepLink(eventType: string | undefined, eventId: string): string {
-  if (eventType === "concert") return `/concert/${eventId}/live`;
-  if (eventType === "duel") return `/duel/${eventId}`;
-  return `/live/${eventId}`;
-}
-
-/**
- * Admin view of every live report.
- * Lets the admin filter by status, group by live, and close each report
- * (status: pending -> reviewed | dismissed).
- */
-export const LiveReportsManager = () => {
+export const CompetitionReportsManager = () => {
   const { toast } = useToast();
   const { language } = useLanguage();
   const { prefs } = useUiPreferences();
   const tz = prefs.timezone;
-  const [rows, setRows] = useState<LiveReportRow[]>([]);
+  const [rows, setRows] = useState<CompetitionReportRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"pending" | "reviewed" | "dismissed" | "all">("pending");
 
@@ -70,7 +45,7 @@ export const LiveReportsManager = () => {
     setLoading(true);
     let reports: any[];
     try {
-      reports = (await listReports("live", {
+      reports = (await listReports("competition", {
         status: filter !== "all" ? filter : undefined,
         limit: 200,
       })) as any[];
@@ -79,28 +54,20 @@ export const LiveReportsManager = () => {
     }
     if (!reports || reports.length === 0) { setRows([]); setLoading(false); return; }
 
-    const userIds = [...new Set(reports.map((r: any) => r.user_id))];
-    const liveIds = [...new Set(reports.filter((r: any) => (r.event_type ?? "live") === "live").map((r: any) => r.live_id).filter(Boolean))] as string[];
-    const concertIds = [...new Set(reports.filter((r: any) => r.event_type === "concert").map((r: any) => r.live_id).filter(Boolean))] as string[];
-    const [profiles, liveTitles, concertTitles] = await Promise.all([
-      getDisplayProfiles(userIds),
-      titlesByIds(liveIds).catch(() => []),
-      concertIds.length ? concertTitlesByIds(concertIds).catch(() => []) : Promise.resolve([]),
-    ]);
+    const userIds = [...new Set(reports.map((r: any) => r.reporter_id))];
+    const profiles = await getDisplayProfiles(userIds).catch(() => []);
     const profMap = new Map(profiles.map((p) => [p.id, p.full_name]));
-    const titleMap = new Map([...liveTitles, ...concertTitles].map((t) => [t.id, t.title]));
 
     setRows(reports.map((r: any) => ({
       ...r,
-      reporter_name: (profMap.get(r.user_id) as string) || (language === "fr" ? "Inconnu" : "Unknown"),
-      live_title: titleMap.get(r.live_id) ?? null,
+      reporter_name: (profMap.get(r.reporter_id) as string) || (language === "fr" ? "Inconnu" : "Unknown"),
     })));
     setLoading(false);
   };
 
   const close = async (id: string, status: "reviewed" | "dismissed") => {
     try {
-      await reviewReport("live", id, { status });
+      await reviewReport("competition", id, { status });
       toast({ title: language === "fr" ? "Signalement clôturé" : "Report closed" });
       void load();
     } catch (e) {
@@ -114,17 +81,17 @@ export const LiveReportsManager = () => {
   const fmt = (dt: string) => formatTz(dt, "dd MMM yyyy HH:mm", { timezone: tz, language });
 
   const tr = language === "en"
-    ? { title: "Live event reports", subtitle: "Reports submitted on lives, concerts and duels by viewers.",
+    ? { title: "Competition reports", subtitle: "Reports submitted on competitions by viewers.",
         empty: "No report in this state.", pending: "Pending", reviewed: "Reviewed", dismissed: "Dismissed", all: "All",
-        markReviewed: "Mark reviewed", markDismissed: "Dismiss" }
-    : { title: "Signalements d'événements", subtitle: "Signalements envoyés sur les lives, concerts et duels par les spectateurs.",
+        markReviewed: "Mark reviewed", markDismissed: "Dismiss", view: "View" }
+    : { title: "Signalements de compétitions", subtitle: "Signalements envoyés sur les compétitions par les spectateurs.",
         empty: "Aucun signalement dans cet état.", pending: "À traiter", reviewed: "Traité", dismissed: "Ignoré", all: "Tous",
-        markReviewed: "Marquer traité", markDismissed: "Ignorer" };
+        markReviewed: "Marquer traité", markDismissed: "Ignorer", view: "Voir" };
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2"><Radio className="w-5 h-5" />{tr.title}</CardTitle>
+        <CardTitle className="flex items-center gap-2"><Trophy className="w-5 h-5" />{tr.title}</CardTitle>
         <CardDescription>{tr.subtitle}</CardDescription>
       </CardHeader>
       <CardContent>
@@ -152,15 +119,14 @@ export const LiveReportsManager = () => {
                   <div className="flex items-start justify-between gap-2 flex-wrap">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <Badge className="text-[10px]">{EVENT_TYPE_LABEL[r.event_type ?? "live"] || r.event_type}</Badge>
                         <Badge variant="outline" className="text-[10px]">{r.reason}</Badge>
                         <a
-                          href={eventDeepLink(r.event_type, r.live_id)}
+                          href={`/competition/${r.competition_id}/live`}
                           target="_blank"
                           rel="noreferrer"
                           className="font-medium text-sm truncate text-primary hover:underline"
                         >
-                          {r.live_title || r.live_id.slice(0, 8)}
+                          {tr.view} · {r.competition_id.slice(0, 8)}
                         </a>
                       </div>
                       {r.details && <p className="text-xs text-muted-foreground mt-1">{r.details}</p>}
@@ -194,4 +160,4 @@ export const LiveReportsManager = () => {
   );
 };
 
-export default LiveReportsManager;
+export default CompetitionReportsManager;

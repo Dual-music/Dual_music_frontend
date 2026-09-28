@@ -32,7 +32,7 @@ const Auth = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { signIn, signUp, isAuthenticated, isAdmin, ready } = useAuth();
+  const { signIn, signUp, refreshMe, user, isAuthenticated, isAdmin, ready } = useAuth();
   const [searchParams] = useSearchParams();
   const refFromUrl = (searchParams.get("ref") || "").trim();
 
@@ -64,6 +64,10 @@ const Auth = () => {
   // 2 = code reçu par email, 3 = profil (nom, pays, numéro).
   const [signupStep, setSignupStep] = useState<1 | 2 | 3>(1);
   const [verifyCode, setVerifyCode] = useState("");
+  // Expiration (epoch ms) du code OTP en cours — pilote le chrono affiché à l'étape 2
+  // (durée de vie 10 min, `config.otp.ttlSeconds` côté backend).
+  const [codeExpiresAt, setCodeExpiresAt] = useState<number | null>(null);
+  const [now, setNow] = useState(Date.now());
   // Vrai pendant tout le wizard : empêche la redirection auto (l'utilisateur est
   // authentifié dès l'étape 1 mais doit encore valider le code + compléter son profil).
   const [wizardActive, setWizardActive] = useState(false);
@@ -109,10 +113,25 @@ const Auth = () => {
   // Suspendu pendant le wizard d'inscription (l'utilisateur est déjà authentifié dès
   // l'étape 1 mais doit valider le code puis compléter son profil avant la redirection).
   useEffect(() => {
-    if (ready && isAuthenticated && !wizardActive) {
-      navigate(isAdmin ? "/admin" : "/profile");
+    if (!ready || !isAuthenticated || wizardActive) return;
+    if (user && !user.emailVerified) {
+      // Compte authentifié mais email jamais vérifié (onglet fermé/rouvert avant la saisie du
+      // code) : on revient à la vérification — avec le renvoi de code toujours disponible —
+      // plutôt que d'entrer dans l'app comme si de rien n'était.
+      setSignupEmail(user.email);
+      setSignupStep(2);
+      setWizardActive(true);
+      return;
     }
-  }, [ready, isAuthenticated, isAdmin, navigate, wizardActive]);
+    navigate(isAdmin ? "/admin" : "/profile");
+  }, [ready, isAuthenticated, isAdmin, navigate, wizardActive, user]);
+
+  // Fait défiler le chrono du code OTP (étape 2) une fois par seconde.
+  useEffect(() => {
+    if (signupStep !== 2 || !codeExpiresAt) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [signupStep, codeExpiresAt]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -182,7 +201,7 @@ const Auth = () => {
         password: signupPassword,
         referralCode: referralEnabled ? signupReferralCode.trim() || null : null,
       });
-      if (user) setSignupStep(2);
+      if (user) { setSignupStep(2); setCodeExpiresAt(Date.now() + 10 * 60 * 1000); }
     } catch (error: any) {
       setWizardActive(false);
       toast({
@@ -195,14 +214,22 @@ const Auth = () => {
     }
   };
 
-  // Étape 2 — vérifie le code reçu par email, puis passe à la saisie du profil.
+  // Étape 2 — vérifie le code reçu par email. Un compte qui a déjà un profil complet (ex.
+  // ancien compte dont l'email n'avait simplement jamais été vérifié) entre directement dans
+  // l'app plutôt que de repasser par la saisie du profil.
   const handleVerifyCode = async (e: React.FormEvent) => {
     e.preventDefault();
     if (verifyCode.trim().length < 4) return;
     setLoading(true);
     try {
       await authApi.verifyEmailOtp(verifyCode.trim());
-      setSignupStep(3);
+      const me = await refreshMe();
+      if (me?.profile?.full_name?.trim()) {
+        setWizardActive(false);
+        navigate(isAdmin ? "/admin" : "/profile");
+      } else {
+        setSignupStep(3);
+      }
     } catch (error: any) {
       toast({
         title: t("error"),
@@ -218,6 +245,7 @@ const Auth = () => {
   const handleResendCode = async () => {
     try {
       await authApi.sendEmailOtp();
+      setCodeExpiresAt(Date.now() + 10 * 60 * 1000);
       toast({ title: t("resetEmailSent") ?? "Code envoyé", description: "Un nouveau code a été envoyé par email." });
     } catch (error: any) {
       toast({
@@ -242,6 +270,9 @@ const Auth = () => {
         birth_date: signupBirthDate || null,
         gender: signupGender || null,
       } as any);
+      // Sans ça, le contexte d'auth gardait le profil de l'étape 1 (sans nom) : l'utilisateur
+      // atterrissait ensuite sur /profile avec "Utilisateur" au lieu de son vrai nom.
+      await refreshMe();
       setWizardActive(false); // Autorise de nouveau la redirection.
       setOnboardingName(signupName);
       setShowOnboarding(true);
@@ -502,6 +533,20 @@ const Auth = () => {
                   </InputOTPGroup>
                 </InputOTP>
               </div>
+              {codeExpiresAt && (
+                (() => {
+                  const remaining = Math.max(0, Math.floor((codeExpiresAt - now) / 1000));
+                  const mm = Math.floor(remaining / 60);
+                  const ss = remaining % 60;
+                  return (
+                    <p className={`text-center text-sm font-medium tabular-nums ${remaining <= 30 ? "text-destructive" : "text-muted-foreground"}`}>
+                      {remaining > 0
+                        ? `Expire dans ${mm}:${String(ss).padStart(2, "0")}`
+                        : "Le code a expiré — renvoie-en un nouveau."}
+                    </p>
+                  );
+                })()
+              )}
               <Button
                 type="submit"
                 className="w-full bg-gradient-primary hover:shadow-glow transition-all"

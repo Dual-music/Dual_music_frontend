@@ -15,6 +15,10 @@ interface ImageUploadProps {
   category?: UploadCategory;
   accept?: string;
   className?: string;
+  /** Notifie le formulaire englobant du début/fin d'upload, pour qu'il grise son bouton
+   *  d'envoi tant que ce n'est pas terminé (sinon on peut soumettre avant que l'URL finale
+   *  ne soit connue). */
+  onUploadingChange?: (uploading: boolean) => void;
 }
 
 /** Maps a legacy storage `folder` name to a backend upload category. */
@@ -34,17 +38,20 @@ export const ImageUpload = ({
   folder = "images",
   category,
   accept = "image/*",
-  className = ""
+  className = "",
+  onUploadingChange,
 }: ImageUploadProps) => {
   const [uploading, setUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
+  const setUploadingState = (v: boolean) => { setUploading(v); onUploadingChange?.(v); };
+
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    setUploading(true);
+    setUploadingState(true);
 
     try {
       const publicUrl = await uploadFile(file, category ?? folderToCategory(folder, "image"));
@@ -61,7 +68,7 @@ export const ImageUpload = ({
         variant: "destructive",
       });
     } finally {
-      setUploading(false);
+      setUploadingState(false);
     }
   };
 

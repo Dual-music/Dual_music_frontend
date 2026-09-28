@@ -169,11 +169,13 @@ export const WebRTCViewer = ({
 
   return (
     <div className="relative w-full h-full bg-black rounded-lg overflow-hidden">
+      {/* object-contain (pas cover) : évite de rogner le flux mobile portrait dans le conteneur
+          16:9 desktop (tête/bas du corps invisibles côté PC) — voir WebRTCHost.tsx. */}
       <video
         ref={videoRef}
         autoPlay
         playsInline
-        className="w-full h-full object-cover"
+        className="w-full h-full object-contain"
       />
 
       {/* Camera-off overlay — show artist avatar instead of black screen when host's camera is off */}

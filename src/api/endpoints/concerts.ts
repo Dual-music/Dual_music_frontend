@@ -165,3 +165,13 @@ export function listConcertDedications(
 export function deliverDedication(id: string): Promise<Record<string, unknown>> {
   return http.post(`/concerts/dedications/${id}/deliver`);
 }
+
+/** POST /concerts/dedications/:id/accept — charges the fan NOW (was pending, no charge yet). */
+export function acceptDedication(id: string): Promise<Record<string, unknown>> {
+  return http.post(`/concerts/dedications/${id}/accept`);
+}
+
+/** POST /concerts/dedications/:id/reject — no charge, the fan was never debited. */
+export function rejectDedication(id: string): Promise<Record<string, unknown>> {
+  return http.post(`/concerts/dedications/${id}/reject`);
+}

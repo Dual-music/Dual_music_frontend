@@ -29,6 +29,7 @@ export const ManagerPublicProfileEditor = ({ userId, userName }: ManagerPublicPr
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [coverUploading, setCoverUploading] = useState(false);
   const [profile, setProfile] = useState<ManagerProfile | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [bio, setBio] = useState("");
@@ -88,7 +89,7 @@ export const ManagerPublicProfileEditor = ({ userId, userName }: ManagerPublicPr
         </div>
 
         <div className="space-y-6">
-          <ImageUpload value={coverImageUrl} onChange={setCoverImageUrl} label={t("mgrProfileCover")} folder="manager-covers" />
+          <ImageUpload value={coverImageUrl} onChange={setCoverImageUrl} onUploadingChange={setCoverUploading} label={t("mgrProfileCover")} folder="manager-covers" />
 
           <div>
             <Label>{t("mgrProfileBio")}</Label>
@@ -118,7 +119,7 @@ export const ManagerPublicProfileEditor = ({ userId, userName }: ManagerPublicPr
             </div>
           </div>
 
-          <Button onClick={handleSave} disabled={saving} className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white w-full">
+          <Button onClick={handleSave} disabled={saving || coverUploading} className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white w-full">
             {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
             {saving ? t("mgrProfileSaving") : t("mgrProfileSave")}
           </Button>

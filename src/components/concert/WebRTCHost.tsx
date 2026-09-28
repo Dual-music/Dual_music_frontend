@@ -1,5 +1,5 @@
 /**
- * Host WebRTC concert payant (`ConcertLive`) : publication via LiveKit (edge `livekit-token`), recording composite (`useMediaRecorder`), gestion durée (`useConcertDuration`).
+ * Host WebRTC concert payant (`ConcertLive`) : publication via LiveKit (edge `livekit-token`), gestion durée (`useConcertDuration`). L'enregistrement (replay) est serveur, piloté par `RecordingButton` (LiveKit Egress) — pas de capture côté client ici.
  */
 /**
  * WebRTCHost (Concert)
@@ -10,7 +10,7 @@
  *  - Acquisition caméra/micro avec contraintes adaptatives (mobile vs desktop)
  *  - Publication des tracks via `useLiveKit` (token signé par `livekit-token`)
  *  - Gestion invités scène (HostGuestControls) : promouvoir/retirer des spectateurs
- *  - Contrôles enregistrement (ConcertRecordingControls) → replay_videos
+ *  - Enregistrement : serveur (LiveKit Egress), piloté par `RecordingButton` → replay_videos
  *  - Filtres vidéo temps réel via Canvas pipeline (useVideoFilter)
  *  - Failsafe : auto-stop si durée concert dépassée (useConcertDuration)
  *  - Portail z-index 220 pour animations cadeaux/votes au-dessus de la vidéo
@@ -286,12 +286,16 @@ export const WebRTCHost = ({
 
   return (
     <div className="relative w-full h-full bg-black rounded-lg overflow-hidden">
+      {/* object-contain (pas cover) : le conteneur desktop est forcé en 16:9 (aspect-video) alors
+          que le flux mobile est capturé en portrait — "cover" rognait une partie du cadre (tête ou
+          bas du corps invisibles sur PC). "contain" garde toujours l'image entière, quitte à
+          ajouter des bandes noires. */}
       <video
         ref={videoRef}
         autoPlay
         playsInline
         muted
-        className="w-full h-full object-cover"
+        className="w-full h-full object-contain"
         style={{ filter: getFilterCss(filterId) }}
       />
 

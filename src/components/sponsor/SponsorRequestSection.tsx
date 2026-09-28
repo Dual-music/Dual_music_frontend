@@ -3,6 +3,7 @@
  * paiement crédits, validation admin (`AdminSponsorManager`).
  */
 import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import * as sponsors from "@/api/endpoints/sponsors";
 import * as uploads from "@/api/endpoints/uploads";
 import * as duelsApi from "@/api/endpoints/duels";
@@ -33,6 +34,7 @@ interface UpcomingEvent {
 
 export const SponsorRequestSection = () => {
   const { toast } = useToast();
+  const location = useLocation();
   const { language, t } = useLanguage();
   const { prefs } = useUiPreferences();
   const tz = prefs.timezone;
@@ -98,7 +100,7 @@ export const SponsorRequestSection = () => {
     const afterCutoff = (d: any) => !!d && new Date(d).getTime() > cutoffMs;
 
     const list: UpcomingEvent[] = [];
-    (duels as any[])?.forEach((d: any) => { if (d.status === "upcoming" && afterCutoff(d.scheduled_time) && isOpen(d.sponsor_submission_deadline)) list.push({ id: d.id, type: "duel", label: `${t("sponsorReqDuelLabel")} — ${formatTz(d.scheduled_time, "dd MMM yyyy", { timezone: tz, language })}`, date: d.scheduled_time, submissionDeadline: d.sponsor_submission_deadline }); });
+    (duels as any[])?.forEach((d: any) => { if (d.accepts_sponsors !== false && d.status === "upcoming" && afterCutoff(d.scheduled_time) && isOpen(d.sponsor_submission_deadline)) list.push({ id: d.id, type: "duel", label: `${t("sponsorReqDuelLabel")} — ${formatTz(d.scheduled_time, "dd MMM yyyy", { timezone: tz, language })}`, date: d.scheduled_time, submissionDeadline: d.sponsor_submission_deadline }); });
     (concerts as any[])?.forEach((c: any) => { if (c.status === "upcoming" && afterCutoff(c.scheduled_date) && isOpen(c.sponsor_submission_deadline)) list.push({ id: c.id, type: "concert", label: `${t("sponsorReqConcertLabel")} : ${c.title}`, date: c.scheduled_date, submissionDeadline: c.sponsor_submission_deadline }); });
     (aConcerts as any[])?.forEach((c: any) => { if (c.status === "upcoming" && afterCutoff(c.scheduled_date) && isOpen(c.sponsor_submission_deadline)) list.push({ id: c.id, type: "artist_concert", label: `${t("sponsorReqConcertLabel")} : ${c.title}`, date: c.scheduled_date, submissionDeadline: c.sponsor_submission_deadline }); });
     (competitions as any[])?.forEach((c: any) => { if (c.accepts_sponsors !== false && ["open", "candidates_locked", "published"].includes(c.status) && afterCutoff(c.start_at) && isOpen(c.sponsor_submission_deadline)) list.push({ id: c.id, type: "competition", label: `${t("sponsorReqCompetitionLabel")} : ${c.title}`, date: c.start_at, submissionDeadline: c.sponsor_submission_deadline }); });
@@ -119,6 +121,19 @@ export const SponsorRequestSection = () => {
 
   useEffect(() => { loadEvents(); }, []);
   useEffect(() => { loadRequests(); }, [user]);
+
+  // Présélection venue d'un bouton "Sponsoriser" cliqué sur une affiche (concert/duel/compétition) —
+  // voir `Concerts.tsx`/`Duels.tsx`/`Competitions.tsx`, qui passent `state.openSponsorFor`. Dans ce
+  // cas l'événement est verrouillé (pas de liste déroulante) : on ne propose le choix parmi TOUS
+  // les événements que si l'utilisateur arrive ici directement via le menu Sponsor du profil.
+  const preselectedTarget = (location.state as any)?.openSponsorFor as { eventType: string; eventId: string } | undefined;
+  const isEventLocked = !!preselectedTarget;
+
+  useEffect(() => {
+    if (!preselectedTarget || events.length === 0) return;
+    const key = `${preselectedTarget.eventType}|${preselectedTarget.eventId}`;
+    if (events.some((e) => `${e.type}|${e.id}` === key)) setEventKey(key);
+  }, [events, preselectedTarget?.eventType, preselectedTarget?.eventId]);
 
   const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50 MB
 
@@ -266,15 +281,24 @@ export const SponsorRequestSection = () => {
         <CardContent className="space-y-4">
           <div>
             <Label>{t("sponsorReqEventLabel")}</Label>
-            <Select value={eventKey} onValueChange={setEventKey}>
-              <SelectTrigger><SelectValue placeholder={t("sponsorReqEventPh")} /></SelectTrigger>
-              <SelectContent>
-                {events.length === 0 && <div className="px-2 py-3 text-sm text-muted-foreground">{t("sponsorReqNoEvents")}</div>}
-                {events.map((e) => (
-                  <SelectItem key={`${e.type}|${e.id}`} value={`${e.type}|${e.id}`}>{e.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {isEventLocked ? (
+              <div className="mt-1 flex items-center gap-2 rounded-md border border-input bg-muted/30 px-3 py-2 text-sm">
+                <Megaphone className="w-4 h-4 text-primary shrink-0" />
+                <span className="truncate">
+                  {events.find((e) => `${e.type}|${e.id}` === eventKey)?.label || t("sponsorReqEventUnavailable")}
+                </span>
+              </div>
+            ) : (
+              <Select value={eventKey} onValueChange={setEventKey}>
+                <SelectTrigger><SelectValue placeholder={t("sponsorReqEventPh")} /></SelectTrigger>
+                <SelectContent>
+                  {events.length === 0 && <div className="px-2 py-3 text-sm text-muted-foreground">{t("sponsorReqNoEvents")}</div>}
+                  {events.map((e) => (
+                    <SelectItem key={`${e.type}|${e.id}`} value={`${e.type}|${e.id}`}>{e.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
           <div>
             <Label>{t("sponsorReqDescLabel")}</Label>

@@ -10,9 +10,10 @@
  * Monté dans `Admin.tsx` sous l'onglet "Modération".
  */
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Shield, Radio, Ban, ShieldAlert } from "lucide-react";
+import { Shield, Radio, Ban, ShieldAlert, Trophy } from "lucide-react";
 import { AccountReportsManager } from "@/components/admin/AccountReportsManager";
 import { LiveReportsManager } from "@/components/admin/LiveReportsManager";
+import { CompetitionReportsManager } from "@/components/admin/CompetitionReportsManager";
 import { ActiveStreamBansManager } from "@/components/admin/ActiveStreamBansManager";
 import { PlatformBansManager } from "@/components/admin/PlatformBansManager";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -27,19 +28,21 @@ import { useLanguage } from "@/contexts/LanguageContext";
 export const ModerationDashboard = () => {
   const { language } = useLanguage();
   const tr = language === "en"
-    ? { profiles: "Profile reports", events: "Event reports", eventBans: "Event bans", platformBans: "Platform suspensions" }
-    : { profiles: "Signalements profils", events: "Signalements événements", eventBans: "Bans événement", platformBans: "Suspensions plateforme" };
+    ? { profiles: "Profile reports", events: "Event reports", competitions: "Competition reports", eventBans: "Event bans", platformBans: "Platform suspensions" }
+    : { profiles: "Signalements profils", events: "Signalements événements", competitions: "Signalements compétitions", eventBans: "Bans événement", platformBans: "Suspensions plateforme" };
 
   return (
     <Tabs defaultValue="profiles" className="w-full">
       <TabsList className="w-full justify-start flex-wrap h-auto">
         <TabsTrigger value="profiles" className="text-xs"><Shield className="w-3 h-3 mr-1" />{tr.profiles}</TabsTrigger>
         <TabsTrigger value="events" className="text-xs"><Radio className="w-3 h-3 mr-1" />{tr.events}</TabsTrigger>
+        <TabsTrigger value="competitions" className="text-xs"><Trophy className="w-3 h-3 mr-1" />{tr.competitions}</TabsTrigger>
         <TabsTrigger value="bans" className="text-xs"><Ban className="w-3 h-3 mr-1" />{tr.eventBans}</TabsTrigger>
         <TabsTrigger value="platform" className="text-xs"><ShieldAlert className="w-3 h-3 mr-1" />{tr.platformBans}</TabsTrigger>
       </TabsList>
       <TabsContent value="profiles" className="mt-4"><AccountReportsManager /></TabsContent>
       <TabsContent value="events" className="mt-4"><LiveReportsManager /></TabsContent>
+      <TabsContent value="competitions" className="mt-4"><CompetitionReportsManager /></TabsContent>
       <TabsContent value="bans" className="mt-4"><ActiveStreamBansManager /></TabsContent>
       <TabsContent value="platform" className="mt-4"><PlatformBansManager /></TabsContent>
     </Tabs>

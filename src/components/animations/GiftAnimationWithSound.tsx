@@ -125,7 +125,12 @@ export const GiftAnimationWithSound = ({
         <motion.div
           initial={{ scale: 0, rotate: -180 }}
           animate={{ scale: [0, 1.5, 1], rotate: [-180, 0, 0] }}
-          transition={{ duration: 0.8, type: "spring", stiffness: 200 }}
+          // `type: "tween"` (pas "spring") : une séquence de 3 keyframes (0 → 1.5 → 1) avec
+          // spring lève une erreur JS non interceptée au montage (Framer Motion ne supporte le
+          // spring/inertia qu'avec 2 valeurs) — même bug que `WinnerAnnouncement.tsx`, ici pour
+          // les cadeaux de valeur (≥ 10 crédits), rendant tout le contenu de l'animation invisible
+          // chez les destinataires de la diffusion temps réel.
+          transition={{ duration: 0.8, type: "tween", ease: "easeOut" }}
           className="relative z-10 flex flex-col items-center"
         >
           {/* Giant gift icon */}

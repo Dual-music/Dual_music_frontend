@@ -17,11 +17,13 @@ import DuelManagement from "./pages/DuelManagement";
 import WalletRecharge from "./pages/WalletRecharge";
 import Duels from "./pages/Duels";
 import DuelLive from "./pages/DuelLive";
+import DuelRecordingView from "./pages/DuelRecordingView";
 import Lives from "./pages/Lives";
 import Concerts from "./pages/Concerts";
 import ConcertDetail from "./pages/ConcertDetail";
 import ConcertLive from "./pages/ConcertLive";
 import LiveStream from "./pages/LiveStream";
+import LiveRecordingView from "./pages/LiveRecordingView";
 import Lifestyle from "./pages/Lifestyle";
 import VideoDetail from "./pages/VideoDetail";
 import Replays from "./pages/Replays";
@@ -67,8 +69,18 @@ const AnimatedRoutes = () => {
         <Route path="/wallet" element={<PageTransition><WalletRecharge /></PageTransition>} />
         <Route path="/duels" element={<PageTransition><Duels /></PageTransition>} />
         <Route path="/duel/:id" element={<PageTransition><DuelLive /></PageTransition>} />
+        {/* Vue interne, sans chrome, utilisée UNIQUEMENT par le navigateur headless de l'egress
+            serveur pour enregistrer un duel composite (voir recording.service.js) — pas de
+            <PageTransition/> (inutile ici, et évite tout délai d'animation avant que la vidéo
+            ne s'affiche). Jetons LiveKit passés en query string (voir buildDuelRecordingUrl). */}
+        <Route path="/duel/:id/recording-view" element={<DuelRecordingView />} />
         <Route path="/lives" element={<PageTransition><Lives /></PageTransition>} />
         <Route path="/live/:id" element={<PageTransition><LiveStream /></PageTransition>} />
+        {/* Vue interne, sans chrome, utilisée UNIQUEMENT par le navigateur headless de l'egress
+            serveur pour enregistrer un live composite avec ses invités (voir
+            recording.service.js) — pas de <PageTransition/> (évite tout délai d'animation avant
+            que la vidéo ne s'affiche). Jetons LiveKit passés en query string. */}
+        <Route path="/live/:id/recording-view" element={<LiveRecordingView />} />
         <Route path="/concerts" element={<PageTransition><Concerts /></PageTransition>} />
         <Route path="/concert/:id" element={<PageTransition><ConcertDetail /></PageTransition>} />
         <Route path="/concert/:id/live" element={<PageTransition><ConcertLive /></PageTransition>} />

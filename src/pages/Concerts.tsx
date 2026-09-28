@@ -25,6 +25,11 @@ import { PriceBadge } from "@/components/profile/PriceBadge";
 import { SimplePagination } from "@/components/ui/simple-pagination";
 import { usePagination } from "@/hooks/usePagination";
 import { SearchBar } from "@/components/ui/search-bar";
+import { DedicationDialog } from "@/components/concert/DedicationDialog";
+import { Heart, Megaphone } from "lucide-react";
+
+/** `true` seulement si une date limite est fixée ET déjà dépassée (pas de date = jamais fermé). */
+const isDeadlinePassed = (deadline?: string | null) => !!deadline && new Date(deadline).getTime() < Date.now();
 
 const Concerts = () => {
   const { t, language } = useLanguage();
@@ -51,6 +56,9 @@ const Concerts = () => {
         location: t("online"), ticket_price: c.ticket_price, max_tickets: c.max_tickets,
         stream_url: c.stream_url, status: c.status, image_url: c.cover_image_url,
         is_artist_concert: true, recording_url: c.recording_url, is_replay_available: c.is_replay_available,
+        allows_dedications: c.allows_dedications, allows_sponsor_ads: c.allows_sponsor_ads,
+        sponsor_submission_deadline: c.sponsor_submission_deadline,
+        dedication_submission_deadline: c.dedication_submission_deadline,
       }));
 
       return [
@@ -149,6 +157,24 @@ const Concerts = () => {
         <Button className={`w-full ${concert.status === "live" ? "bg-red-500 hover:bg-red-600" : "bg-gradient-primary hover:shadow-glow"} transition-all`}>
           {concert.status === "live" ? t("watchLiveConcert") : t("buyTicket")}
         </Button>
+        {concert.is_artist_concert && concert.status !== "ended" && concert.status !== "cancelled" && (
+          <div className="flex gap-2 mt-2" onClick={(e) => e.stopPropagation()}>
+            {/* Dédicaces UNIQUEMENT avant le direct (contrairement au live) : toutes les demandes
+                doivent être traitées avant que le concert ne démarre. */}
+            {concert.status === "upcoming" && concert.allows_dedications !== false && !isDeadlinePassed(concert.dedication_submission_deadline) && (
+              <div className="flex-1"><DedicationDialog concertId={concert.id} artistName={concert.artist_name} /></div>
+            )}
+            {concert.allows_sponsor_ads !== false && !isDeadlinePassed(concert.sponsor_submission_deadline) && (
+              <Button
+                variant="outline"
+                className="flex-1 gap-2"
+                onClick={() => navigate("/profile", { state: { openSponsorFor: { eventType: "artist_concert", eventId: concert.id } } })}
+              >
+                <Megaphone className="w-4 h-4 text-amber-500" /> {t("requestSponsor") || "Sponsoriser"}
+              </Button>
+            )}
+          </div>
+        )}
       </CardContent>
     </Card>
     );

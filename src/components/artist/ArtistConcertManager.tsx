@@ -40,6 +40,8 @@ interface Concert {
   approval_status?: string;
   allows_dedications?: boolean;
   allows_sponsor_ads?: boolean;
+  sponsor_submission_deadline?: string | null;
+  dedication_submission_deadline?: string | null;
 }
 
 export const ArtistConcertManager = ({ userId }: ArtistConcertManagerProps) => {
@@ -52,6 +54,7 @@ export const ArtistConcertManager = ({ userId }: ArtistConcertManagerProps) => {
   const [concerts, setConcerts] = useState<Concert[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [coverUploading, setCoverUploading] = useState(false);
   const [editingConcert, setEditingConcert] = useState<Concert | null>(null);
   
   const [formData, setFormData] = useState({
@@ -64,6 +67,8 @@ export const ArtistConcertManager = ({ userId }: ArtistConcertManagerProps) => {
     stream_url: "",
     allows_dedications: true,
     allows_sponsor_ads: true,
+    sponsor_deadline: "",
+    dedication_deadline: "",
   });
 
   useEffect(() => {
@@ -104,6 +109,10 @@ export const ArtistConcertManager = ({ userId }: ArtistConcertManagerProps) => {
         coverImageUrl: formData.cover_image_url || null,
         allowsDedications: formData.allows_dedications,
         allowsSponsorAds: formData.allows_sponsor_ads,
+        sponsorSubmissionDeadline: formData.allows_sponsor_ads && formData.sponsor_deadline
+          ? toWireUtc(formData.sponsor_deadline, tz) : null,
+        dedicationSubmissionDeadline: formData.allows_dedications && formData.dedication_deadline
+          ? toWireUtc(formData.dedication_deadline, tz) : null,
       };
 
       if (editingConcert) {
@@ -120,7 +129,7 @@ export const ArtistConcertManager = ({ userId }: ArtistConcertManagerProps) => {
         });
       }
 
-      setFormData({ title: "", description: "", scheduled_date: "", ticket_price: "", max_tickets: "", cover_image_url: "", stream_url: "", allows_dedications: true, allows_sponsor_ads: true });
+      setFormData({ title: "", description: "", scheduled_date: "", ticket_price: "", max_tickets: "", cover_image_url: "", stream_url: "", allows_dedications: true, allows_sponsor_ads: true, sponsor_deadline: "", dedication_deadline: "" });
       setEditingConcert(null);
       setIsDialogOpen(false);
       loadConcerts();
@@ -216,7 +225,7 @@ export const ArtistConcertManager = ({ userId }: ArtistConcertManagerProps) => {
                 </div>
               </div>
 
-              <ImageUpload value={formData.cover_image_url} onChange={(url) => setFormData({...formData, cover_image_url: url})} label={t("artConcertCoverLabel")} folder="concerts" />
+              <ImageUpload value={formData.cover_image_url} onChange={(url) => setFormData({...formData, cover_image_url: url})} onUploadingChange={setCoverUploading} label={t("artConcertCoverLabel")} folder="concerts" />
 
               <div className="space-y-2">
                 <Label htmlFor="stream_url">{t("artConcertStreamLabel")}</Label>
@@ -224,21 +233,43 @@ export const ArtistConcertManager = ({ userId }: ArtistConcertManagerProps) => {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-lg border bg-muted/30">
-                <label className="flex items-center justify-between gap-2 cursor-pointer">
-                  <span className="text-sm">{t("artConcertAcceptDedications")}</span>
-                  <input type="checkbox" checked={formData.allows_dedications}
-                    onChange={(e) => setFormData({...formData, allows_dedications: e.target.checked})}
-                    className="h-4 w-4" />
-                </label>
-                <label className="flex items-center justify-between gap-2 cursor-pointer">
-                  <span className="text-sm">{t("artConcertAcceptAds")}</span>
-                  <input type="checkbox" checked={formData.allows_sponsor_ads}
-                    onChange={(e) => setFormData({...formData, allows_sponsor_ads: e.target.checked})}
-                    className="h-4 w-4" />
-                </label>
+                <div className="space-y-2">
+                  <label className="flex items-center justify-between gap-2 cursor-pointer">
+                    <span className="text-sm">{t("artConcertAcceptDedications")}</span>
+                    <input type="checkbox" checked={formData.allows_dedications}
+                      onChange={(e) => setFormData({...formData, allows_dedications: e.target.checked})}
+                      className="h-4 w-4" />
+                  </label>
+                  {formData.allows_dedications && (
+                    <div className="space-y-1">
+                      <Label htmlFor="dedication_deadline" className="text-xs text-muted-foreground">
+                        {t("dedicationDeadlineLabel") || "Date de fin des demandes de dédicace"}
+                      </Label>
+                      <Input id="dedication_deadline" type="datetime-local" value={formData.dedication_deadline}
+                        onChange={(e) => setFormData({...formData, dedication_deadline: e.target.value})} />
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <label className="flex items-center justify-between gap-2 cursor-pointer">
+                    <span className="text-sm">{t("artConcertAcceptAds")}</span>
+                    <input type="checkbox" checked={formData.allows_sponsor_ads}
+                      onChange={(e) => setFormData({...formData, allows_sponsor_ads: e.target.checked})}
+                      className="h-4 w-4" />
+                  </label>
+                  {formData.allows_sponsor_ads && (
+                    <div className="space-y-1">
+                      <Label htmlFor="sponsor_deadline" className="text-xs text-muted-foreground">
+                        {t("sponsorDeadlineLabel") || "Date de fin des demandes de sponsor"}
+                      </Label>
+                      <Input id="sponsor_deadline" type="datetime-local" value={formData.sponsor_deadline}
+                        onChange={(e) => setFormData({...formData, sponsor_deadline: e.target.value})} />
+                    </div>
+                  )}
+                </div>
               </div>
 
-              <Button type="submit" disabled={saving} className="w-full">
+              <Button type="submit" disabled={saving || coverUploading} className="w-full">
                 {saving ? t("artConcertCreating") : t("artConcertCreate")}
               </Button>
             </form>
@@ -331,6 +362,8 @@ export const ArtistConcertManager = ({ userId }: ArtistConcertManagerProps) => {
                         stream_url: concert.stream_url || "",
                         allows_dedications: concert.allows_dedications ?? true,
                         allows_sponsor_ads: concert.allows_sponsor_ads ?? true,
+                        sponsor_deadline: toTzInputValue(concert.sponsor_submission_deadline, tz),
+                        dedication_deadline: toTzInputValue(concert.dedication_submission_deadline, tz),
                       });
                       setIsDialogOpen(true);
                     }}>

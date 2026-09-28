@@ -91,7 +91,34 @@ export function reject(id: string, input?: Record<string, unknown>): Promise<Rec
   return http.post(`/withdrawals/${id}/reject`, input ?? {});
 }
 
-/** POST /withdrawals/:id/complete (admin) — mark paid out. */
+/**
+ * POST /withdrawals/:id/complete (admin) — mark paid out.
+ *
+ * Règlement **manuel** : n'émet aucun virement, se contente d'enregistrer que
+ * l'argent a été envoyé hors plateforme (virement bancaire, PayPal, Stripe).
+ * Pour un versement Mobile Money automatisé, utiliser {@link payout}.
+ */
 export function complete(id: string, input?: Record<string, unknown>): Promise<Record<string, unknown>> {
   return http.post(`/withdrawals/${id}/complete`, input ?? {});
+}
+
+/**
+ * POST /withdrawals/:id/payout — émet le transfert CinetPay (Mobile Money).
+ *
+ * La demande passe en `processing` : l'ordre est parti chez l'opérateur mais
+ * l'argent n'est pas encore versé. Le passage à `completed` (ou `failed`, avec
+ * recrédit des crédits) est décidé par le webhook du prestataire.
+ *
+ * Accessible à l'admin, et au propriétaire de la demande en versement automatique.
+ * `idempotencyKey` protège contre un double envoi réseau.
+ */
+export function payout(
+  id: string,
+  idempotencyKey?: string,
+): Promise<{ merchantTransactionId: string; amount: number; currency: string; status: string }> {
+  return http.post(
+    `/withdrawals/${id}/payout`,
+    {},
+    idempotencyKey ? { headers: { "Idempotency-Key": idempotencyKey } } : {},
+  );
 }

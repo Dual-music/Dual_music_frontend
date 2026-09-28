@@ -33,8 +33,9 @@ const Lifestyle = () => {
   const { data: videos, isLoading } = useQuery({
     queryKey: ["lifestyle-videos"],
     queryFn: async () => {
-      // TODO(migration): no bulk comment-count endpoint; use each video's own
-      // comments_count from listVideos (degraded from an aggregated comments read).
+      // `comments_count` (par vidéo, via listVideos) est maintenant tenu à jour côté serveur à
+      // chaque création/suppression de commentaire (voir comment.service.js) — auparavant figé
+      // à 0 à la création de la vidéo et jamais incrémenté.
       return (await listVideos()) as any[];
     },
     refetchInterval: 15000,

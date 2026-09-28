@@ -21,10 +21,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveKit } from "@/hooks/useLiveKit";
 import * as competitions from "@/api/endpoints/competitions";
 import { useRoomEvent } from "@/realtime/useRoom";
+import { useRoomBroadcast } from "@/realtime/useRoomBroadcast";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Mic, MicOff, Video as VideoIcon, VideoOff, SwitchCamera, LogOut, Loader2, Trophy, Pin, PinOff, EyeOff, Eye, Maximize2 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useToast } from "@/hooks/use-toast";
 
 
 export interface CompetitionStageControls {
@@ -58,6 +60,17 @@ interface Props {
   hideBuiltInControls?: boolean;
   /** Mode plein écran (mobile overlay) — supprime la carte et étire la vidéo. */
   fullBleed?: boolean;
+  /** Candidats coupés d'autorité par l'organisateur (hard-mute micro, parité duel). */
+  mutedArtistIds?: Set<string>;
+  /** Candidats bannis de la compétition — masqués pour tous ; si c'est MOI, ma diffusion s'arrête. */
+  bannedArtistIds?: Set<string>;
+  /** Map userId → profil, pour afficher le nom de chaque publieur distant sur sa case
+   *  (manager + candidats) — sans ça, seule ma propre case locale affichait un nom. */
+  profiles?: Record<string, { full_name?: string; avatar_url?: string } | undefined>;
+  /** Notifie le parent quand la bande de vignettes multi-cam s'affiche/se masque, pour que
+   *  `MobileStreamOverlay` (rendu par-dessus, en plein écran) décale son rail d'icônes et ne se
+   *  mélange plus avec les vignettes ni avec la ligne des messages (voir `hasTopThumbnails`). */
+  onThumbnailsVisibleChange?: (visible: boolean) => void;
 }
 
 export const CompetitionLiveStage = ({
@@ -71,8 +84,13 @@ export const CompetitionLiveStage = ({
   onPeerCountChange,
   hideBuiltInControls,
   fullBleed,
+  mutedArtistIds,
+  bannedArtistIds,
+  profiles,
+  onThumbnailsVisibleChange,
 }: Props) => {
   const { t } = useLanguage();
+  const { toast } = useToast();
   const canPublish = isHost || (competition.mode === "online" && isCandidate);
   const {
     localStream,
@@ -92,6 +110,10 @@ export const CompetitionLiveStage = ({
     isHost,
     participantName: displayName,
     canPublish,
+    // Sans ce callback, un échec de connexion/caméra (permission refusée, caméra déjà utilisée,
+    // salle pas encore prête…) échouait en silence : le bouton « Démarrer » ne semblait rien
+    // faire, sans aucun message pour comprendre pourquoi.
+    onError: (message: string) => toast({ title: message, variant: "destructive" }),
   });
 
   const [isCameraOn, setIsCameraOn] = useState(true);
@@ -149,6 +171,23 @@ export const CompetitionLiveStage = ({
     if (localRef.current && localStream) localRef.current.srcObject = localStream;
   }, [localStream]);
 
+  // Ref-callback STABLE (mémoïsée) pour la vidéo locale — voir son usage plus bas. Une fonction
+  // fléchée inline aurait une IDENTITÉ NEUVE à chaque rendu de ce composant (donc à chaque clic
+  // emoji/j'aime ailleurs sur la page, qui re-rend ce parent) : React détache alors l'ancien
+  // callback ref (appel avec `null`) PUIS rattache le nouveau (réassigne `srcObject`) À CHAQUE
+  // rendu, même quand l'élément <video> et le flux n'ont pas changé — cette réassignation répétée
+  // de `srcObject` provoque un clignotement visible de l'image (bug signalé : « la vidéo clignote
+  // quand on clique sur un emoji »). En dépendant de `[localStream]`, l'identité ne change que
+  // quand le flux change réellement, tout en gérant toujours correctement le VRAI remontage
+  // (bascule focus ↔ vignette, voir commentaire sur le <video> plus bas).
+  const attachLocalVideo = useCallback(
+    (el: HTMLVideoElement | null) => {
+      localRef.current = el;
+      if (el && localStream) el.srcObject = localStream;
+    },
+    [localStream],
+  );
+
   useEffect(() => {
     onLocalStream?.(localStream || null);
   }, [localStream, onLocalStream]);
@@ -174,6 +213,8 @@ export const CompetitionLiveStage = ({
 
   const handleToggleMic = useCallback(async () => {
     if (togglingMicRef.current) return;
+    // Coupé d'autorité par l'organisateur : je ne peux pas me réactiver moi-même (parité duel).
+    if (!isMicOn && mutedArtistIds?.has(currentUserId)) return;
     togglingMicRef.current = true;
     try {
       const next = !isMicOn;
@@ -184,7 +225,40 @@ export const CompetitionLiveStage = ({
     } finally {
       togglingMicRef.current = false;
     }
-  }, [isMicOn, toggleAudio]);
+  }, [isMicOn, toggleAudio, mutedArtistIds, currentUserId]);
+
+  // Micro coupé/réactivé d'autorité par l'organisateur (diffusion `competition-mute-<id>`) :
+  // force l'état local sur chaque TRANSITION de mon id dans `mutedArtistIds` (parité duel —
+  // `WebRTCDuelStream.tsx`). Avant ce correctif, seule l'entrée dans le Set coupait le micro ;
+  // la sortie (FORCE_UNMUTE) ne faisait que mettre à jour l'affichage du bouton manager sans
+  // jamais rallumer la piste audio réelle — le compétiteur restait muet malgré la démute.
+  // `wasForceMutedRef` évite de rallumer le micro de tout le monde à chaque changement du Set
+  // (recréé à chaque toggle, même pour un AUTRE candidat) : on ne réagit qu'à MA transition.
+  const wasForceMutedRef = useRef(false);
+  useEffect(() => {
+    if (!currentUserId) return;
+    const mutedNow = !!mutedArtistIds?.has(currentUserId);
+    if (mutedNow && !wasForceMutedRef.current) {
+      if (isMicOn) {
+        toggleAudio(false).catch(() => {});
+        setIsMicOn(false);
+      }
+    } else if (!mutedNow && wasForceMutedRef.current) {
+      toggleAudio(true).catch(() => {});
+      setIsMicOn(true);
+    }
+    wasForceMutedRef.current = mutedNow;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mutedArtistIds, currentUserId]);
+
+  // Banni de la compétition (parité concert/live `stream:banned`) : ma diffusion s'arrête pour
+  // tous — je ne peux plus publier caméra/micro tant que le ban n'est pas levé.
+  useEffect(() => {
+    if (currentUserId && bannedArtistIds?.has(currentUserId) && localStream) {
+      leaveRoom().catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bannedArtistIds, currentUserId]);
 
   const handleSwitchCamera = useCallback(async () => {
     await switchCamera(facingMode);
@@ -253,21 +327,38 @@ export const CompetitionLiveStage = ({
   ]);
 
   // ---- Focus & thumbnail layout ------------------------------------------
-  const tracks = Array.from(remoteStreams.entries()); // [ [userId, stream] ]
   const showLocal = canPublish && localStream;
 
   // All tiles indexed by identity (userId string), with a "local" pseudo-id.
+  // `remoteStreams` (pas un `tracks` intermédiaire recréé à chaque rendu, ce qui aurait rendu ce
+  // `useMemo` inopérant) est la vraie dépendance stable : `allTiles` ne se recalcule donc plus à
+  // chaque rendu de ce composant (clic emoji/j'aime ailleurs sur la page, etc.), seulement quand
+  // les flux changent réellement.
   type Tile = { id: string; stream: MediaStream; isLocal: boolean };
   const allTiles: Tile[] = useMemo(() => {
     const list: Tile[] = [];
     if (showLocal && localStream) list.push({ id: currentUserId, stream: localStream, isLocal: true });
-    tracks.forEach(([pid, s]) => list.push({ id: pid, stream: s, isLocal: false }));
+    // Un candidat banni disparaît de l'écran de TOUS (pas seulement du sien) — parité concert/live.
+    remoteStreams.forEach((s, pid) => { if (!bannedArtistIds?.has(pid)) list.push({ id: pid, stream: s, isLocal: false }); });
     return list;
-  }, [showLocal, localStream, tracks, currentUserId]);
+  }, [showLocal, localStream, remoteStreams, currentUserId, bannedArtistIds]);
 
   const [userFocusId, setUserFocusId] = useState<string | null>(null);
   const [forcedFocusId, setForcedFocusId] = useState<string | null>(competition.forced_focus_participant_id || null);
   const [hideThumbs, setHideThumbs] = useState(false);
+  // « Masquer les autres cases » diffusé par l'organisateur à TOUS les spectateurs (distinct de
+  // `hideThumbs`, qui reste un choix personnel de chaque spectateur pour son propre écran).
+  const [forcedHideOthers, setForcedHideOthers] = useState(false);
+  const { broadcast: broadcastHideOthers } = useRoomBroadcast(
+    competition?.id ? `competition-hide-others-${competition.id}` : null,
+    (event) => setForcedHideOthers(event === "HIDE"),
+  );
+  const effectiveHideThumbs = hideThumbs || forcedHideOthers;
+  const toggleHideThumbs = useCallback(() => {
+    const next = !effectiveHideThumbs;
+    if (isHost) broadcastHideOthers(next ? "HIDE" : "SHOW");
+    setHideThumbs(next);
+  }, [effectiveHideThumbs, isHost, broadcastHideOthers]);
 
   // Realtime forced-focus updates via the Socket.IO `/live` room `focus` event.
   useRoomEvent("/live", "competition", competition?.id, "focus", (payload: any) => {
@@ -287,34 +378,78 @@ export const CompetitionLiveStage = ({
   const effectiveFocusId = forcedFocusId || userFocusId || allTiles[0]?.id || null;
   const focusTile = allTiles.find((t) => t.id === effectiveFocusId) || allTiles[0];
   const thumbnailTiles = allTiles.filter((t) => t.id !== focusTile?.id);
+  const showThumbStrip = !effectiveHideThumbs && thumbnailTiles.length > 0;
 
-  const renderTile = (tile: Tile, opts: { className: string; showName?: boolean }) => (
-    <div className="relative w-full h-full">
-      {tile.isLocal ? (
-        <video ref={localRef} autoPlay muted playsInline className={opts.className} />
-      ) : (
-        <RemoteVideo stream={tile.stream} className={opts.className} />
-      )}
-      {opts.showName && (
-        <div className="absolute bottom-1 left-1 text-[10px] bg-black/60 text-white px-2 py-0.5 rounded">
-          {tile.isLocal ? `${displayName}${!isMicOn ? " 🔇" : ""}${!isCameraOn ? " 📷" : ""}` : ""}
+  // Informe le parent (mobile plein écran) que la bande de vignettes est visible, pour qu'il
+  // décale le rail d'icônes de `MobileStreamOverlay` en conséquence.
+  useEffect(() => {
+    onThumbnailsVisibleChange?.(showThumbStrip);
+  }, [showThumbStrip, onThumbnailsVisibleChange]);
+
+  // Badge micro visible par TOUS (organisateur + spectateurs) sur chaque case candidat,
+  // synchronisé avec la coupure d'autorité `mutedArtistIds` (diffusion `competition-mute-<id>`)
+  // — parité visuelle avec le badge micro de `GuestVideoBox` (concerts).
+  const renderTile = (tile: Tile, opts: { className: string; showName?: boolean }) => {
+    const isMuted = tile.isLocal ? !isMicOn : !!mutedArtistIds?.has(tile.id);
+    // Nom du publieur (manager ou candidat) : avant ce correctif, seule MA propre case locale
+    // affichait un nom (`displayName`) — les cases distantes restaient vides, contrairement au
+    // mobile qui résout déjà le nom de chaque candidat via `candidates`. `profiles` (userId →
+    // profil) est indexé identiquement pour le manager (`manager_id`) et chaque candidat
+    // (`artist_id`), donc `profiles?.[tile.id]` couvre les deux cas sans distinction.
+    const tileName = tile.isLocal ? displayName : (profiles?.[tile.id]?.full_name || "");
+    return (
+      <div className="relative w-full h-full">
+        {tile.isLocal ? (
+          <video
+            // Callback ref (pas juste `ref={localRef}`) : le même tile local est rendu tour à
+            // tour dans le bloc focus OU dans une vignette selon qui est épinglé — à chaque
+            // bascule, React démonte l'ancien <video> et en monte un nouveau à un autre endroit
+            // de l'arbre. Le `useEffect([localStream])` plus bas ne se redéclenche PAS pour un
+            // remount (le stream, lui, n'a pas changé), donc le nouvel élément restait sans
+            // `srcObject` → écran noir pour l'artiste dès qu'il tapait une case (signalé).
+            // Le callback ref réattache le flux dès que l'élément (re)monte, peu importe la cause
+            // — mémoïsé (`attachLocalVideo`) pour ne PAS se redéclencher à chaque rendu, voir plus haut.
+            ref={attachLocalVideo}
+            autoPlay
+            muted
+            playsInline
+            className={opts.className}
+          />
+        ) : (
+          <RemoteVideo stream={tile.stream} className={opts.className} />
+        )}
+        <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-1.5 py-0.5 flex items-center justify-between gap-1">
+          <span className="text-[10px] text-white truncate">
+            {tileName}
+          </span>
+          {isMuted ? (
+            <MicOff className="w-2.5 h-2.5 text-red-400 shrink-0" />
+          ) : (
+            <Mic className="w-2.5 h-2.5 text-green-400 shrink-0" />
+          )}
         </div>
-      )}
-    </div>
-  );
+      </div>
+    );
+  };
 
   const wrapperClass = fullBleed
     ? "relative w-full h-full bg-black overflow-hidden"
     : "p-2 relative overflow-hidden";
   const Wrapper: any = fullBleed ? "div" : Card;
 
-  return (
-    <Wrapper className={wrapperClass}>
-      {allTiles.length > 0 ? (
-        <div className={fullBleed ? "relative w-full h-full flex flex-col" : "relative flex flex-col gap-2"}>
-          {/* Focus tile */}
-          <div className={fullBleed ? "relative flex-1 min-h-0 w-full bg-black" : "relative w-full aspect-video bg-black rounded overflow-hidden"}>
-            {focusTile && renderTile(focusTile, { className: "w-full h-full bg-black object-cover", showName: true })}
+  // Bloc « caméra principale ». En plein écran mobile, `MobileStreamOverlay` empile son propre
+  // chat/rail par-dessus depuis le BAS de l'écran (parité live/duel) : si la bande de vignettes
+  // ci-dessous restait après ce bloc (flex-col → vignettes en bas), elle finissait juste derrière
+  // la ligne des messages. On la fait donc passer AVANT ce bloc en plein écran (haut de l'écran,
+  // sous le header), et `hasTopThumbnails` (passé au parent via `onThumbnailsVisibleChange`)
+  // décale le rail d'icônes de `MobileStreamOverlay` sous elle.
+  const focusBlock = (
+    <div key="focus" className={fullBleed ? "relative flex-1 min-h-0 w-full bg-black" : "relative w-full aspect-video bg-black rounded overflow-hidden"}>
+            {/* object-contain (pas cover) en vue PRINCIPALE : un flux mobile portrait forcé en
+                cover dans ce conteneur plus large côté web rognait la tête/le bas du corps —
+                même correctif que GuestVideoBox (concerts). Les vignettes restent en cover
+                (cadrage serré attendu pour une petite case). */}
+            {focusTile && renderTile(focusTile, { className: "w-full h-full bg-black object-contain", showName: true })}
 
             {/* Overlay controls on focus (top-right) */}
             <div className="absolute top-2 right-2 flex flex-col gap-1 z-10">
@@ -323,10 +458,14 @@ export const CompetitionLiveStage = ({
                   size="icon"
                   variant="secondary"
                   className="h-8 w-8 bg-black/60 hover:bg-black/80 text-white"
-                  onClick={() => setHideThumbs((v) => !v)}
-                  title={hideThumbs ? (t("showThumbnails") || "Afficher les mini-cases") : (t("hideThumbnails") || "Masquer les mini-cases")}
+                  onClick={toggleHideThumbs}
+                  title={
+                    isHost
+                      ? (effectiveHideThumbs ? (t("showThumbnails") || "Afficher les mini-cases (pour tous)") : (t("hideThumbnails") || "Masquer les mini-cases (pour tous)"))
+                      : (effectiveHideThumbs ? (t("showThumbnails") || "Afficher les mini-cases") : (t("hideThumbnails") || "Masquer les mini-cases"))
+                  }
                 >
-                  {hideThumbs ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                  {effectiveHideThumbs ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                 </Button>
               )}
               {isHost && focusTile && (
@@ -346,34 +485,63 @@ export const CompetitionLiveStage = ({
                 {t("forceFocus") || "Focus imposé"}
               </div>
             )}
-          </div>
+    </div>
+  );
 
-          {/* Thumbnails strip */}
-          {!hideThumbs && thumbnailTiles.length > 0 && (
-            <div className={fullBleed ? "shrink-0 w-full bg-black/80 p-1 overflow-x-auto" : "w-full overflow-x-auto"}>
-              <div className="flex gap-2 min-w-min">
-                {thumbnailTiles.map((tile) => (
-                  <button
-                    key={tile.id}
-                    onClick={() => setUserFocusId(tile.id)}
-                    className={`relative shrink-0 rounded overflow-hidden ring-2 transition-all ${effectiveFocusId === tile.id ? "ring-primary" : "ring-transparent hover:ring-white/40"}`}
-                    style={{ width: 110, height: 62 }}
-                    title={t("watchLive") || "Voir cette case"}
-                  >
-                    {renderTile(tile, { className: "w-full h-full bg-black object-cover" })}
-                    <Maximize2 className="absolute top-1 right-1 w-3 h-3 text-white/80 drop-shadow" />
-                    {isHost && (
-                      <span
-                        onClick={(e) => { e.stopPropagation(); setForcedFocusRemote(forcedFocusId === tile.id ? null : tile.id); }}
-                        className="absolute bottom-1 right-1 bg-black/70 rounded p-0.5 text-white cursor-pointer"
-                      >
-                        {forcedFocusId === tile.id ? <PinOff className="w-3 h-3" /> : <Pin className="w-3 h-3" />}
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
+  const renderThumbButton = (tile: Tile, size: { width: number; height: number }) => (
+    <button
+      key={tile.id}
+      onClick={() => setUserFocusId(tile.id)}
+      className={`relative shrink-0 rounded overflow-hidden ring-2 transition-all ${effectiveFocusId === tile.id ? "ring-primary" : "ring-transparent hover:ring-white/40"}`}
+      style={size}
+      title={t("watchLive") || "Voir cette case"}
+    >
+      {renderTile(tile, { className: "w-full h-full bg-black object-cover" })}
+      <Maximize2 className="absolute top-1 right-1 w-3 h-3 text-white/80 drop-shadow" />
+      {isHost && (
+        <span
+          onClick={(e) => { e.stopPropagation(); setForcedFocusRemote(forcedFocusId === tile.id ? null : tile.id); }}
+          className="absolute bottom-1 right-1 bg-black/70 rounded p-0.5 text-white cursor-pointer"
+        >
+          {forcedFocusId === tile.id ? <PinOff className="w-3 h-3" /> : <Pin className="w-3 h-3" />}
+        </span>
+      )}
+    </button>
+  );
+
+  const thumbStripBlock = showThumbStrip ? (
+    fullBleed ? (
+      // Mobile plein écran : rail horizontal en HAUT (au-dessus du focus, sous le header de
+      // `MobileStreamOverlay`) — le placer en bas superposerait sa propre ligne de messages/
+      // actions rendue par-dessus depuis le bas de l'écran (voir commentaire plus haut).
+      <div key="thumbs" className="shrink-0 w-full bg-black/80 px-1 pb-1 pt-14 overflow-x-auto">
+        <div className="flex gap-2 min-w-min">
+          {thumbnailTiles.map((tile) => renderThumbButton(tile, { width: 110, height: 62 }))}
+        </div>
+      </div>
+    ) : (
+      // Desktop : petites cases en BAS À DROITE, empilées verticalement, en overlay par-dessus
+      // la caméra principale (ne pousse plus la mise en page vers le bas).
+      <div key="thumbs" className="absolute bottom-2 right-2 z-10 flex flex-col gap-2 max-h-[80%] overflow-y-auto">
+        {thumbnailTiles.map((tile) => renderThumbButton(tile, { width: 96, height: 54 }))}
+      </div>
+    )
+  ) : null;
+
+  return (
+    <Wrapper className={wrapperClass}>
+      {allTiles.length > 0 ? (
+        <div className={fullBleed ? "relative w-full h-full flex flex-col" : "relative flex flex-col gap-2"}>
+          {fullBleed ? (
+            <>
+              {thumbStripBlock}
+              {focusBlock}
+            </>
+          ) : (
+            <>
+              {focusBlock}
+              {thumbStripBlock}
+            </>
           )}
         </div>
       ) : (

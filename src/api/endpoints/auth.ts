@@ -26,6 +26,7 @@ export interface AuthUser {
 export type Profile = Record<string, unknown> & {
   id: string;
   display_name?: string | null;
+  full_name?: string | null;
   avatar_url?: string | null;
   referral_code?: string | null;
 };

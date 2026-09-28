@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { Flame, Users, Trophy, Calendar, Play, Eye, Clock, Video } from "lucide-react";
+import { Flame, Users, Trophy, Calendar, Play, Eye, Clock, Video, Megaphone } from "lucide-react";
 import { usePresence } from "@/realtime/useRoom";
 import { listDuels, votesBatch } from "@/api/endpoints/duels";
 import { listReplays } from "@/api/endpoints/replays";
@@ -20,6 +20,9 @@ import { SimplePagination } from "@/components/ui/simple-pagination";
 import { usePagination } from "@/hooks/usePagination";
 import { SearchBar } from "@/components/ui/search-bar";
 import { EmptyState } from "@/components/ui/empty-state";
+
+/** `true` seulement si une date limite est fixée ET déjà dépassée (pas de date = jamais fermé). */
+const isDeadlinePassed = (deadline?: string | null) => !!deadline && new Date(deadline).getTime() < Date.now();
 
 interface DuelVotes {
   [duelId: string]: { artist1: number; artist2: number };
@@ -220,6 +223,19 @@ const Duels = () => {
           >
             {duel.status === "live" ? t("vote") : duel.status === "ended" ? t("viewReplay") : t("viewDuel")}
           </Button>
+          {duel.status !== "ended" && duel.accepts_sponsors !== false && !isDeadlinePassed(duel.sponsor_submission_deadline) && (
+            <Button
+              variant="outline"
+              className="w-full gap-2 mt-2"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!currentUserId) { setShowAuthDialog(true); return; }
+                navigate("/profile", { state: { openSponsorFor: { eventType: "duel", eventId: duel.id } } });
+              }}
+            >
+              <Megaphone className="w-4 h-4 text-amber-500" /> {t("requestSponsor") || "Sponsoriser"}
+            </Button>
+          )}
         </CardContent>
       </Card>
     );

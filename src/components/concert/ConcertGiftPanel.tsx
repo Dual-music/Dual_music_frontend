@@ -84,29 +84,30 @@ const ConcertGiftPanel = ({
     }, maxDuration);
   };
 
-  useEffect(() => {
-    const fetchUserGifts = async () => {
-      if (user) {
-        const inv = (await giftsApi.myInventory()) as Array<Record<string, any>>;
-        // L'endpoint /gifts/inventory renvoie des lignes PLATES { gift_id, name, price, image_url, quantity }
-        // (pas de `id` ni de `virtual_gifts`). Sans normaliser `id: gift_id`, les <SelectItem value={undefined}>
-        // rendent la sélection impossible → l'envoi échoue avec « sélectionnez un cadeau ».
-        setGifts(
-          (inv || []).map((ug) => {
-            const g = ug.virtual_gifts ?? ug;
-            return { ...g, id: g.id ?? ug.gift_id, quantity: ug.quantity ?? 0 };
-          }),
-        );
-      } else {
-        const list = await giftsApi.listGifts();
-        setGifts((list || []).map((g) => ({ ...g, quantity: 0 })));
-      }
-    };
+  const fetchUserGifts = async () => {
+    if (user) {
+      const inv = (await giftsApi.myInventory()) as Array<Record<string, any>>;
+      // L'endpoint /gifts/inventory renvoie des lignes PLATES { gift_id, name, price, image_url, quantity }
+      // (pas de `id` ni de `virtual_gifts`). Sans normaliser `id: gift_id`, les <SelectItem value={undefined}>
+      // rendent la sélection impossible → l'envoi échoue avec « sélectionnez un cadeau ».
+      setGifts(
+        (inv || []).map((ug) => {
+          const g = ug.virtual_gifts ?? ug;
+          return { ...g, id: g.id ?? ug.gift_id, quantity: ug.quantity ?? 0 };
+        }),
+      );
+    } else {
+      const list = await giftsApi.listGifts();
+      setGifts((list || []).map((g) => ({ ...g, quantity: 0 })));
+    }
+  };
 
+  useEffect(() => {
     fetchUserGifts();
     return () => {
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [concertId, artistId, artistName, user]);
 
   // Gift-animation broadcast (Socket.IO), same channel/event/payload as before.
@@ -137,7 +138,7 @@ const ConcertGiftPanel = ({
   // Bridge mobile → web : le backend émet l'event serveur `gift` pour tout cadeau (dont ceux
   // envoyés depuis le MOBILE, qui ne diffuse pas sur le canal peer). On l'écoute ici, en
   // ignorant ses propres envois et en dédupliquant via la signature partagée.
-  useRoomEvent<{ to_user_id?: string; from_user_id?: string; value?: number }>(
+  useRoomEvent<{ to_user_id?: string; from_user_id?: string; value?: number; gift_name?: string; gift_image?: string }>(
     "/live",
     roomType,
     concertId || null,
@@ -154,10 +155,12 @@ const ConcertGiftPanel = ({
       } catch {
         /* fallback sur le libellé générique */
       }
+      // Le backend fournit le NOM/IMAGE réels du cadeau (gift_name/gift_image) — un cadeau
+      // envoyé depuis le mobile affichait "Cadeau 🎁" générique faute de les lire ici.
       showAnimationSafe({
         eventId: crypto.randomUUID(),
-        giftName: "Cadeau",
-        giftImage: "🎁",
+        giftName: p?.gift_name || "Cadeau",
+        giftImage: p?.gift_image || "🎁",
         senderName,
         recipientName: artistName,
         price,
@@ -190,8 +193,14 @@ const ConcertGiftPanel = ({
     let sendOk = true;
     let sendErrCode: string | undefined;
     try {
+      // La clé envoyée au backend DOIT correspondre à `roomType` (celui qu'on écoute plus haut
+      // via useRoomEvent) — sinon le backend route le cadeau vers `concert:<id>` alors que tout
+      // le monde écoute `live:<id>` (room ET donateur enregistré sous le mauvais type d'événement,
+      // donc invisible côté mobile et absent du classement des donateurs du live).
       await sendGift(
-        { giftId: selectedGift, toUserId: artistId, concertId },
+        roomType === "live"
+          ? { giftId: selectedGift, toUserId: artistId, liveId: concertId }
+          : { giftId: selectedGift, toUserId: artistId, concertId },
         crypto.randomUUID(),
       );
     } catch (e) {
@@ -320,7 +329,7 @@ const ConcertGiftPanel = ({
             <ShoppingBag className="w-4 h-4" /> {t("giftShop")}
           </Button>
 
-          <GiftShopDialog open={shopOpen} onOpenChange={setShopOpen} />
+          <GiftShopDialog open={shopOpen} onOpenChange={setShopOpen} onPurchase={fetchUserGifts} />
         </CardContent>
       </Card>
     </>

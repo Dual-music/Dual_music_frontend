@@ -69,29 +69,29 @@ const GiftPanel = ({
   const [recentGifts, setRecentGifts] = useState<any[]>([]);
   const [shopOpen, setShopOpen] = useState(false);
 
-  useEffect(() => {
-    const fetchUserGifts = async () => {
-      try {
-        if (user) {
-          const inventory = (await giftsApi.myInventory()) as any[];
-          setGifts(
-            inventory.map((ug: any) => ({
-              id: ug.gift_id,
-              name: ug.name,
-              image_url: ug.image_url,
-              price: ug.price,
-              quantity: ug.quantity,
-            })),
-          );
-        } else {
-          const catalog = (await giftsApi.listGifts()) as any[];
-          setGifts(catalog.map((gift: any) => ({ ...gift, quantity: 0 })));
-        }
-      } catch {
-        setGifts([]);
+  const fetchUserGifts = async () => {
+    try {
+      if (user) {
+        const inventory = (await giftsApi.myInventory()) as any[];
+        setGifts(
+          inventory.map((ug: any) => ({
+            id: ug.gift_id,
+            name: ug.name,
+            image_url: ug.image_url,
+            price: ug.price,
+            quantity: ug.quantity,
+          })),
+        );
+      } else {
+        const catalog = (await giftsApi.listGifts()) as any[];
+        setGifts(catalog.map((gift: any) => ({ ...gift, quantity: 0 })));
       }
-    };
+    } catch {
+      setGifts([]);
+    }
+  };
 
+  useEffect(() => {
     fetchUserGifts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [duelId, user]);
@@ -257,7 +257,7 @@ const GiftPanel = ({
           <ShoppingBag className="w-4 h-4" /> {t("giftShop")}
         </Button>
 
-        <GiftShopDialog open={shopOpen} onOpenChange={setShopOpen} />
+        <GiftShopDialog open={shopOpen} onOpenChange={setShopOpen} onPurchase={fetchUserGifts} />
 
         {recentGifts.length > 0 && (
           <div className="pt-4 border-t border-border">

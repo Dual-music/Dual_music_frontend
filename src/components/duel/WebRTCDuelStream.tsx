@@ -320,13 +320,15 @@ const WebRTCDuelStreamInner = forwardRef<WebRTCDuelStreamHandle, WebRTCDuelStrea
       const targetArtistId = (payload as { artistId?: string })?.artistId;
       if (targetArtistId !== oderId) return;
       if (event === "FORCE_MUTE") {
+        // Mute UNIQUEMENT le micro : on coupe la piste audio + on signale à LiveKit, SANS
+        // reconstruire le localStream (toggleAudio le faisait → la caméra locale se fermait).
         if (localStream) localStream.getAudioTracks().forEach((track) => { track.enabled = false; });
-        toggleAudio(false);
+        room?.localParticipant.setMicrophoneEnabled(false).catch(() => {});
         setIsMicOn(false);
         setIsForceMuted(true);
       } else if (event === "FORCE_UNMUTE") {
         if (localStream) localStream.getAudioTracks().forEach((track) => { track.enabled = true; });
-        toggleAudio(true);
+        room?.localParticipant.setMicrophoneEnabled(true).catch(() => {});
         setIsMicOn(true);
         setIsForceMuted(false);
       }
@@ -338,17 +340,18 @@ const WebRTCDuelStreamInner = forwardRef<WebRTCDuelStreamHandle, WebRTCDuelStrea
     if (!isCurrentUser || !localStream) return;
 
     if (isMutedByManager) {
+      // Mute micro seul, sans reconstruire le localStream (évite de fermer la caméra locale).
       localStream.getAudioTracks().forEach((track) => {
         track.enabled = false;
       });
-      toggleAudio(false);
+      room?.localParticipant.setMicrophoneEnabled(false).catch(() => {});
       setIsMicOn(false);
       setIsForceMuted(true);
       return;
     }
 
     setIsForceMuted(false);
-  }, [isMutedByManager, isCurrentUser, localStream, toggleAudio]);
+  }, [isMutedByManager, isCurrentUser, localStream, room]);
 
   // Expose control methods via ref
   const startStreamingRef = useRef<() => Promise<void>>();

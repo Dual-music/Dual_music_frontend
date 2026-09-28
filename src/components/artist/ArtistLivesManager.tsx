@@ -33,6 +33,9 @@ export const ArtistLivesManager = ({ userId, onNavigate }: ArtistLivesManagerPro
   const [liveTitle, setLiveTitle] = useState("");
   const [startingLive, setStartingLive] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [allowsDedications, setAllowsDedications] = useState(true);
+  const [allowGuests, setAllowGuests] = useState(true);
+  const [minPrice, setMinPrice] = useState("");
 
   const { data: lives, isLoading } = useQuery({
     queryKey: ["artist-my-lives", userId],
@@ -47,7 +50,12 @@ export const ArtistLivesManager = ({ userId, onNavigate }: ArtistLivesManagerPro
     if (!userId) return;
     setStartingLive(true);
     try {
-      const data = await createLive({ title: liveTitle || t("artLivesDefaultTitle") });
+      const data = await createLive({
+        title: liveTitle || t("artLivesDefaultTitle"),
+        allowsDedications,
+        allowGuests,
+        dedicationMinPriceCredits: minPrice ? Number(minPrice) : undefined,
+      });
       queryClient.invalidateQueries({ queryKey: ["artist-my-lives"] });
       setDialogOpen(false);
       onNavigate(`/live/${(data as { id: string }).id}`);
@@ -98,6 +106,33 @@ export const ArtistLivesManager = ({ userId, onNavigate }: ArtistLivesManagerPro
             <div className="space-y-4 pt-4">
               <Input placeholder={t("artLivesTitlePlaceholder")} value={liveTitle} onChange={(e) => setLiveTitle(e.target.value)} />
               <p className="text-sm text-muted-foreground">{t("artLivesStartDesc")}</p>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={allowsDedications ? "default" : "outline"}
+                  className="flex-1 text-xs"
+                  onClick={() => setAllowsDedications((v) => !v)}
+                >
+                  Dédicaces {allowsDedications ? "activées" : "coupées"}
+                </Button>
+                <Button
+                  type="button"
+                  variant={allowGuests ? "default" : "outline"}
+                  className="flex-1 text-xs"
+                  onClick={() => setAllowGuests((v) => !v)}
+                >
+                  Invités {allowGuests ? "activés" : "coupés"}
+                </Button>
+              </div>
+              {allowsDedications && (
+                <Input
+                  type="number"
+                  min={1}
+                  placeholder="Prix minimum dédicace (vide = défaut plateforme)"
+                  value={minPrice}
+                  onChange={(e) => setMinPrice(e.target.value)}
+                />
+              )}
               <Button onClick={startLive} disabled={startingLive} className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white">
                 {startingLive ? t("artLivesStarting") : t("artLivesStartBtn")}
               </Button>

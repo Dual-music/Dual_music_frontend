@@ -64,9 +64,42 @@ export function apply(id: string, input?: Record<string, unknown>): Promise<Reco
   return http.post(`/competitions/${id}/apply`, input ?? {});
 }
 
+/**
+ * POST /competitions/:id/candidates/manual — manager/admin adds a candidate directly (walk-in,
+ * onsite events), bypassing self-application + review. Gated by the `manual_candidates_config`
+ * platform setting (disabled by default).
+ */
+export function addCandidateManually(id: string, input: { artistId: string; pitch?: string }): Promise<Record<string, unknown>> {
+  return http.post(`/competitions/${id}/candidates/manual`, input);
+}
+
 /** POST /competitions/candidates/:id/review — approve/reject a candidate (admin). */
 export function reviewCandidate(candidateId: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
   return http.post(`/competitions/candidates/${candidateId}/review`, input);
+}
+
+/**
+ * DELETE /competitions/candidates/:id — remove a candidate (any status). The server refunds the
+ * entry fee automatically if it was actually charged (idempotent — safe even if nothing was paid).
+ */
+export function removeCandidate(candidateId: string): Promise<{ removed: boolean; refunded: boolean }> {
+  return http.delete(`/competitions/candidates/${candidateId}`);
+}
+
+/**
+ * GET /competitions/candidates/pending-count/mine — manager-only cumulative count of pending
+ * candidates across all of the caller's competitions (sidebar badge).
+ */
+export function myPendingCandidatesCount(): Promise<{ count: number }> {
+  return http.get("/competitions/candidates/pending-count/mine");
+}
+
+/**
+ * POST /competitions/candidates/:id/jury-votes — sets (absolute, not increment) a candidate's
+ * cumulative jury votes (manager), added to paid votes + gift credits in the live/final ranking.
+ */
+export function setJuryVotes(candidateId: string, juryVotes: number): Promise<Record<string, unknown>> {
+  return http.post(`/competitions/candidates/${candidateId}/jury-votes`, { juryVotes });
 }
 
 /** POST /competitions/:id/publish */

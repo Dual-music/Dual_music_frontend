@@ -12,13 +12,14 @@
  * @param  canDismiss     Indique si l'utilisateur courant peut fermer
  * @see    finalize_competition_ranking RPC
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { listCandidates } from "@/api/endpoints/competitions";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { usePlatformSetting } from "@/hooks/usePlatformSettings";
 import { Trophy, Crown, Medal, X } from "lucide-react";
 
 interface Props {
@@ -28,13 +29,24 @@ interface Props {
   onClose?: () => void;
 }
 
-const APPLAUSE_URL = "https://assets.mixkit.co/active_storage/sfx/1011/1011-preview.mp3";
+// Fanfare de victoire par défaut, utilisée tant que l'admin n'a pas téléversé son propre son
+// (réglage `winner_sound_url`) — même son que `WinnerAnnouncement.tsx`.
+const DEFAULT_APPLAUSE_URL = "https://assets.mixkit.co/active_storage/sfx/2010/2010-preview.mp3";
 
 export const CompetitionFinalRanking = ({ competitionId, profiles, canDismiss = false, onClose }: Props) => {
   const { t } = useLanguage();
   const [open, setOpen] = useState(true);
   const [rows, setRows] = useState<any[]>([]);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const { data: customSoundUrl } = usePlatformSetting<string | null>("winner_sound_url", null);
+
+  // Joué en boucle tant que l'annonce reste affichée (jusqu'à ce que le manager l'arrête).
+  useEffect(() => {
+    const audio = new Audio(customSoundUrl || DEFAULT_APPLAUSE_URL);
+    audio.volume = 0.7;
+    audio.loop = true;
+    audio.play().catch(() => {});
+    return () => { audio.pause(); audio.src = ""; };
+  }, [customSoundUrl]);
 
   useEffect(() => {
     const load = async () => {
@@ -51,15 +63,6 @@ export const CompetitionFinalRanking = ({ competitionId, profiles, canDismiss = 
     load();
   }, [competitionId]);
 
-  useEffect(() => {
-    const a = new Audio(APPLAUSE_URL);
-    a.volume = 0.6;
-    a.loop = true;
-    a.play().catch(() => {});
-    audioRef.current = a;
-    return () => { a.pause(); a.src = ""; };
-  }, []);
-
   if (!open) return null;
 
   const winner = rows[0];
@@ -68,7 +71,6 @@ export const CompetitionFinalRanking = ({ competitionId, profiles, canDismiss = 
 
   const handleClose = () => {
     setOpen(false);
-    audioRef.current?.pause();
     onClose?.();
   };
 

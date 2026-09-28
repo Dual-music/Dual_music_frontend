@@ -252,13 +252,16 @@ export const GuestVideoBox = ({
         />
       )}
       {/* CRITICAL: Never use display:none (hidden) — it stops audio playback in most browsers.
-          Use opacity-0 so audio-only streams still play. */}
+          Use opacity-0 so audio-only streams still play.
+          object-contain en vue PRINCIPALE (agrandie) : ne rogne jamais le cadre (le flux mobile
+          portrait dans un conteneur desktop plus large coupait tête/bas du corps). Les petites
+          vignettes gardent object-cover pour un cadrage net. */}
       <video
         ref={videoRef}
         autoPlay
         playsInline
         muted={isMe}
-        className={`w-full h-full object-cover ${hasVideo ? 'opacity-100' : 'opacity-0 absolute inset-0'}`}
+        className={`w-full h-full ${isMainView ? 'object-contain' : 'object-cover'} ${hasVideo ? 'opacity-100' : 'opacity-0 absolute inset-0'}`}
       />
       {/* Hidden audio element as fallback — ensures audio-only streams play reliably
           across all browsers, especially when mic is activated without camera */}

@@ -1,4 +1,20 @@
 /**
+ * ⛔ **DÉPRÉCIÉ — NE PAS REDÉPLOYER.**
+ *
+ * Remplacé par `POST /api/v1/withdrawals/:id/payout` du backend Node
+ * (`services/payments/payout.service.js`). Le front n'appelle plus cette
+ * fonction : `src/api/endpoints/withdrawals.ts` pointe sur le backend.
+ *
+ * Conservé pour référence historique uniquement. **Cette version comporte un
+ * défaut financier** : elle marque la demande `completed` dès l'acceptation HTTP
+ * du transfert (lignes « status: completed » ci-dessous), alors qu'une réponse
+ * 2xx signifie « ordre reçu », pas « argent versé ». Si le transfert échoue
+ * ensuite, le webhook rembourse un retrait déjà affiché comme payé. Le backend
+ * corrige ce point via un état `processing` intermédiaire, seul le webhook
+ * écrivant l'état final.
+ *
+ * ---
+ *
  * Edge Function: process-withdrawal
  *
  * Process a row from `withdrawal_requests` via the configured provider

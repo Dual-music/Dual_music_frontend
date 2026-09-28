@@ -24,7 +24,7 @@
  * @see     src/components/artist/WithdrawalForm.tsx
  */
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { getBalance } from "@/api/endpoints/wallet";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -33,7 +33,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
-import { Music2, LogOut, Wallet, Video, Award, Users, Gift, Trophy, Play, Upload, TrendingUp, Ticket, Calendar, Eye, Settings, Mic, Star, Crown, Briefcase, DollarSign, FileText, UserCheck, Camera, Lock, Bell, BookOpen } from "lucide-react";
+import { Music2, LogOut, Wallet, Video, Award, Users, Gift, Trophy, Play, Upload, TrendingUp, Ticket, Calendar, Eye, Settings, Mic, Star, Crown, Briefcase, DollarSign, FileText, UserCheck, Camera, Lock, Bell, BookOpen, Megaphone } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import ProfileHeader from "@/components/profile/ProfileHeader";
 import ProfileFooter from "@/components/profile/ProfileFooter";
@@ -77,6 +77,8 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import * as users from "@/api/endpoints/users";
 import * as creators from "@/api/endpoints/creators";
+import * as duelsApi from "@/api/endpoints/duels";
+import { myPendingCandidatesCount } from "@/api/endpoints/competitions";
 import { useTransactionNotifications } from "@/hooks/useTransactionNotifications";
 import { useUiPreferences } from "@/hooks/useUiPreferences";
 import { formatTz } from "@/lib/datetime";
@@ -119,6 +121,7 @@ interface Duel {
 
 const Profile = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast } = useToast();
   const { signOut, user, profile: authProfile, roles: authRoles, ready, refreshMe } = useAuth();
   const { t, language } = useLanguage();
@@ -133,6 +136,13 @@ const Profile = () => {
   const [bio, setBio] = useState("");
   const [phone, setPhone] = useState("");
   const [countryCode, setCountryCode] = useState("FR");
+  // Invitations de duel reçues, en attente d'acceptation — chargé au montage (pas seulement à
+  // l'ouverture de l'onglet Duels) pour que le badge du menu soit visible immédiatement.
+  const [pendingDuelInvites, setPendingDuelInvites] = useState(0);
+  // Candidatures en attente cumulées sur toutes les compétitions du manager — chargé au montage
+  // pour que le badge du menu "Mes compétitions" soit visible immédiatement (même logique que
+  // pendingDuelInvites ci-dessus).
+  const [pendingCandidatesCount, setPendingCandidatesCount] = useState(0);
   const [artistStats, setArtistStats] = useState<ArtistStats>({ totalVotes: 0, totalGifts: 0, totalDuels: 0, wonDuels: 0 });
   const [managerStats, setManagerStats] = useState<ManagerStats>({ totalDuelsManaged: 0, activeDuels: 0, totalGiftsReceived: 0 });
   const [fanStats, setFanStats] = useState<FanStats>({ totalVotesCast: 0, totalGiftsSent: 0, totalTickets: 0 });
@@ -144,6 +154,13 @@ const Profile = () => {
   const [editMode, setEditMode] = useState(false);
   const [activeTab, setActiveTab] = useState("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Arrivée depuis le bouton "Sponsoriser" d'une affiche (concert/duel/compétition) — voir
+  // `Concerts.tsx`/`Duels.tsx`/`Competitions.tsx`. Ouvre directement l'onglet Sponsoring
+  // (`SponsorRequestSection` lit ensuite `location.state.openSponsorFor` pour présélectionner).
+  useEffect(() => {
+    if ((location.state as any)?.openSponsorFor) setActiveTab("sponsor");
+  }, [location.state]);
 
   // Realtime toasts when a transaction is confirmed (purchase, gift, withdrawal)
   useTransactionNotifications(profile?.id ?? null);
@@ -164,6 +181,37 @@ const Profile = () => {
     }
     setRoles(authRoles as string[]);
   }, [authProfile, authRoles]);
+
+  // Badge du menu Duels (artiste) : invitations reçues encore en attente.
+  useEffect(() => {
+    if (!user || !roles.includes("artist")) { setPendingDuelInvites(0); return; }
+    let active = true;
+    (async () => {
+      try {
+        const all = (await duelsApi.myDuelRequests()) as any[];
+        const count = all.filter((r) => r.opponent_id === user.id && r.status === "pending").length;
+        if (active) setPendingDuelInvites(count);
+      } catch {
+        if (active) setPendingDuelInvites(0);
+      }
+    })();
+    return () => { active = false; };
+  }, [user, roles]);
+
+  // Badge du menu "Mes compétitions" (manager) : candidatures en attente sur toutes ses compétitions.
+  useEffect(() => {
+    if (!user || !roles.includes("manager")) { setPendingCandidatesCount(0); return; }
+    let active = true;
+    (async () => {
+      try {
+        const res = await myPendingCandidatesCount();
+        if (active) setPendingCandidatesCount(res?.count || 0);
+      } catch {
+        if (active) setPendingCandidatesCount(0);
+      }
+    })();
+    return () => { active = false; };
+  }, [user, roles]);
 
   // Fetch wallet balance + consolidated stats (artist/manager/fan) via REST.
   useEffect(() => {
@@ -376,12 +424,14 @@ const Profile = () => {
               active={activeTab}
               onSelect={(v) => {
                 if (v === "transactions") { navigate("/transactions"); return; }
-                
+                if (v === "replays") { navigate("/my-replays"); return; }
+
                 setActiveTab(v);
               }}
               open={sidebarOpen}
               onOpenChange={setSidebarOpen}
               title={getRoleTitle()}
+              badges={{ duels: pendingDuelInvites, competitions: pendingCandidatesCount }}
             />
           )}
           <div className="flex-1 min-w-0 max-w-5xl space-y-6">
@@ -585,7 +635,7 @@ const Profile = () => {
                   <TabsTrigger value="followed" className="text-xs sm:text-sm">{t("followed")}</TabsTrigger>
                   <TabsTrigger value="subscription" className="text-xs sm:text-sm">{t("subscription")}</TabsTrigger>
                   <TabsTrigger value="referral" className="text-xs sm:text-sm"><Gift className="w-3 h-3 mr-1" />{t("referralProgram")}</TabsTrigger>
-                  <TabsTrigger value="sponsor" className="text-xs sm:text-sm">Sponsor</TabsTrigger>
+                  <TabsTrigger value="sponsor" className="text-xs sm:text-sm"><Megaphone className="w-3 h-3 mr-1" />{t("sbSponsor")}</TabsTrigger>
                   <TabsTrigger value="become-artist" className="text-xs sm:text-sm">{t("becomeArtist")}</TabsTrigger>
                   <TabsTrigger value="become-manager" className="text-xs sm:text-sm">{t("becomeManager")}</TabsTrigger>
                   <TabsTrigger value="notifications" className="text-xs sm:text-sm"><Bell className="w-3 h-3 mr-1" />{t("notifs")}</TabsTrigger>
@@ -695,6 +745,7 @@ const Profile = () => {
                   <TabsTrigger value="content" className="text-xs sm:text-sm">{t("content")}</TabsTrigger>
                   <TabsTrigger value="earnings" className="text-xs sm:text-sm">{t("earnings")}</TabsTrigger>
                   <TabsTrigger value="referral" className="text-xs sm:text-sm"><Gift className="w-3 h-3 mr-1" />{t("referralProgram")}</TabsTrigger>
+                  <TabsTrigger value="sponsor" className="text-xs sm:text-sm"><Megaphone className="w-3 h-3 mr-1" />{t("sbSponsor")}</TabsTrigger>
                   <TabsTrigger value="notifications" className="text-xs sm:text-sm"><Bell className="w-3 h-3 mr-1" />{t("notifs")}</TabsTrigger>
                 </TabsList>
 
@@ -819,6 +870,10 @@ const Profile = () => {
                   <ReferralSection />
                 </TabsContent>
 
+                <TabsContent value="sponsor" className="mt-6">
+                  <SponsorRequestSection />
+                </TabsContent>
+
                 <TabsContent value="notifications" className="mt-6 space-y-6">
                   <EmailNotificationPreferences userRoles={roles} />
                 </TabsContent>
@@ -845,6 +900,7 @@ const Profile = () => {
                   <TabsTrigger value="profile" className="text-xs sm:text-sm">{t("artistProfile")}</TabsTrigger>
                   <TabsTrigger value="earnings" className="text-xs sm:text-sm">{t("earnings")}</TabsTrigger>
                   <TabsTrigger value="referral" className="text-xs sm:text-sm"><Gift className="w-3 h-3 mr-1" />{t("referralProgram")}</TabsTrigger>
+                  <TabsTrigger value="sponsor" className="text-xs sm:text-sm"><Megaphone className="w-3 h-3 mr-1" />{t("sbSponsor")}</TabsTrigger>
                   <TabsTrigger value="notifications" className="text-xs sm:text-sm"><Bell className="w-3 h-3 mr-1" />{t("notifs")}</TabsTrigger>
                 </TabsList>
 
@@ -875,6 +931,14 @@ const Profile = () => {
                         <Eye className="w-6 h-6" />
                         <span>{t("allDuels")}</span>
                         <span className="text-xs text-muted-foreground">{t("seeCurrentDuels")}</span>
+                      </Button>
+                      {/* Replays des duels/compétitions gérés (prix, publication, téléchargement,
+                          remplacement) — même page que côté artiste, `MyReplays` inclut déjà les
+                          replays du manager (created_by) + ceux des compétitions qu'il gère. */}
+                      <Button variant="outline" className="h-auto py-4 flex-col gap-2 border-blue-500/50" onClick={() => navigate("/my-replays")}>
+                        <Video className="w-6 h-6" />
+                        <span>{t("myReplays")}</span>
+                        <span className="text-xs text-muted-foreground">{t("reviewPerformances")}</span>
                       </Button>
                     </div>
                   </Card>
@@ -941,6 +1005,10 @@ const Profile = () => {
 
                 <TabsContent value="referral" className="mt-6">
                   <ReferralSection />
+                </TabsContent>
+
+                <TabsContent value="sponsor" className="mt-6">
+                  <SponsorRequestSection />
                 </TabsContent>
 
                 <TabsContent value="notifications" className="mt-6 space-y-6">

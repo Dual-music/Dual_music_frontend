@@ -1,6 +1,7 @@
 /**
  * Sidebar de navigation profil (Sheet sur mobile, sticky desktop) : liste les sections selon rôle (fan/artiste/manager/mod/admin).
  */
+import { useEffect, useRef } from "react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import {
   LayoutDashboard, Heart, CreditCard, Gift, Megaphone, UserCheck, Briefcase, Bell,
   Mic, Swords, Music, Radio, Video, DollarSign, User, Wallet, SlidersHorizontal, LogOut, Trophy,
+  PlayCircle,
 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 
@@ -19,12 +21,21 @@ export interface ProfileTabItem {
   value: string;
   label: string;
   icon: JSX.Element;
+  /** Compte affiché en badge sur l'item (ex. invitations de duel en attente) — masqué si 0/absent. */
+  badge?: number;
 }
 
-export function useProfileTabs(role: ProfileRole): ProfileTabItem[] {
+/**
+ * @param badges Comptes à injecter par valeur d'onglet (ex. `{ duels: 2 }`) — le sidebar reste
+ *   agnostique de leur origine ; l'appelant (Profile.tsx) les charge une seule fois au montage
+ *   pour qu'ils soient visibles immédiatement, sans avoir à ouvrir l'onglet concerné.
+ */
+export function useProfileTabs(role: ProfileRole, badges?: Record<string, number>): ProfileTabItem[] {
   const { t } = useLanguage();
+  const withBadges = (items: ProfileTabItem[]): ProfileTabItem[] =>
+    badges ? items.map((it) => (badges[it.value] ? { ...it, badge: badges[it.value] } : it)) : items;
   if (role === "artist") {
-    return [
+    return withBadges([
       { value: "dashboard",     label: t("dashboard"),         icon: <LayoutDashboard className="w-4 h-4" /> },
       { value: "profile",       label: t("artistProfile"),     icon: <Mic className="w-4 h-4" /> },
       { value: "duels",         label: t("duels"),             icon: <Swords className="w-4 h-4" /> },
@@ -32,29 +43,38 @@ export function useProfileTabs(role: ProfileRole): ProfileTabItem[] {
       { value: "lives",         label: t("lives"),             icon: <Radio className="w-4 h-4" /> },
       { value: "competitions",  label: t("compMyCompetitions"), icon: <Mic className="w-4 h-4" /> },
       { value: "content",       label: t("navLifestyle"),      icon: <Video className="w-4 h-4" /> },
+      // Regroupe TOUS les enregistrements (duel/concert/compétition/live) en attente d'édition
+      // (prix + publication) ou déjà publiés — auparavant accessible seulement via un bouton
+      // enfoui dans l'onglet Tableau de bord, absent de la sidebar elle-même.
+      { value: "replays",       label: t("myReplays"),         icon: <PlayCircle className="w-4 h-4" /> },
       { value: "earnings",      label: t("earnings"),          icon: <DollarSign className="w-4 h-4" /> },
       { value: "followed",      label: t("followed") || t("sbFollowing"), icon: <Heart className="w-4 h-4" /> },
       { value: "transactions",  label: t("sbMyTransactions"),   icon: <Wallet className="w-4 h-4" /> },
       { value: "referral",      label: t("referralProgram"),   icon: <Gift className="w-4 h-4" /> },
+      { value: "sponsor",       label: t("sbSponsor"),         icon: <Megaphone className="w-4 h-4" /> },
       { value: "preferences",   label: t("sbPreferences"),      icon: <SlidersHorizontal className="w-4 h-4" /> },
       { value: "notifications", label: t("notifs"),            icon: <Bell className="w-4 h-4" /> },
-    ];
+    ]);
   }
   if (role === "manager") {
-    return [
+    return withBadges([
       { value: "dashboard",     label: t("dashboard"),         icon: <LayoutDashboard className="w-4 h-4" /> },
       { value: "duels",         label: t("myDuelsTab"),        icon: <Swords className="w-4 h-4" /> },
       { value: "competitions",  label: t("compManagement"),    icon: <Trophy className="w-4 h-4" /> },
       { value: "profile",       label: t("artistProfile"),     icon: <User className="w-4 h-4" /> },
+      // Regroupe TOUS les enregistrements (duel/compétition) que le manager a produits, en
+      // attente d'édition (prix + publication) ou déjà publiés.
+      { value: "replays",       label: t("myReplays"),         icon: <PlayCircle className="w-4 h-4" /> },
       { value: "earnings",      label: t("earnings"),          icon: <DollarSign className="w-4 h-4" /> },
       { value: "followed",      label: t("followed") || t("sbFollowing"), icon: <Heart className="w-4 h-4" /> },
       { value: "transactions",  label: t("sbMyTransactions"),   icon: <Wallet className="w-4 h-4" /> },
       { value: "referral",      label: t("referralProgram"),   icon: <Gift className="w-4 h-4" /> },
+      { value: "sponsor",       label: t("sbSponsor"),         icon: <Megaphone className="w-4 h-4" /> },
       { value: "preferences",   label: t("sbPreferences"),      icon: <SlidersHorizontal className="w-4 h-4" /> },
       { value: "notifications", label: t("notifs"),            icon: <Bell className="w-4 h-4" /> },
-    ];
+    ]);
   }
-  return [
+  return withBadges([
     { value: "dashboard",      label: t("dashboard"),         icon: <LayoutDashboard className="w-4 h-4" /> },
     { value: "followed",       label: t("followed"),          icon: <Heart className="w-4 h-4" /> },
     { value: "subscription",   label: t("subscription"),      icon: <CreditCard className="w-4 h-4" /> },
@@ -65,38 +85,56 @@ export function useProfileTabs(role: ProfileRole): ProfileTabItem[] {
     { value: "become-manager", label: t("becomeManager"),     icon: <Briefcase className="w-4 h-4" /> },
     { value: "preferences",    label: t("sbPreferences"),      icon: <SlidersHorizontal className="w-4 h-4" /> },
     { value: "notifications",  label: t("notifs"),            icon: <Bell className="w-4 h-4" /> },
-  ];
+  ]);
 }
 
 const Body = ({ items, active, onSelect, onClose }: {
   items: ProfileTabItem[]; active: string; onSelect: (v: string) => void; onClose?: () => void;
-}) => (
-  <ScrollArea className="flex-1 min-h-0 h-full w-full">
-    <nav className="p-3 space-y-1">
-      {items.map((item) => {
-        const isActive = active === item.value;
-        return (
-          <button
-            key={item.value}
-            onClick={() => { onSelect(item.value); onClose?.(); }}
-            className={cn(
-              "w-full group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all relative overflow-hidden",
-              isActive
-                ? "bg-gradient-to-r from-primary/20 via-primary/10 to-transparent text-primary font-semibold shadow-sm"
-                : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-            )}
-          >
-            {isActive && <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r bg-primary" />}
-            <span className={cn("shrink-0 transition-transform group-hover:scale-110", isActive && "text-primary")}>
-              {item.icon}
-            </span>
-            <span className="flex-1 text-left truncate">{item.label}</span>
-          </button>
-        );
-      })}
-    </nav>
-  </ScrollArea>
-);
+}) => {
+  // Fait défiler jusqu'à l'item ACTIF dès qu'on arrive sur une page (ou qu'on change d'onglet) —
+  // sans ça, la liste restait scrollée là où on l'avait laissée (souvent tout en haut) même quand
+  // la page actuelle correspondait à un item tout en bas : pour naviguer vers un item VOISIN de
+  // la page en cours, il fallait d'abord rescroller manuellement depuis le haut à chaque fois
+  // (signalé). `block: "center"` laisse voir les voisins des deux côtés, pas seulement en dessous.
+  const activeRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    activeRef.current?.scrollIntoView({ block: "center", behavior: "instant" as ScrollBehavior });
+  }, [active]);
+
+  return (
+    <ScrollArea className="flex-1 min-h-0 h-full w-full">
+      <nav className="p-3 space-y-1">
+        {items.map((item) => {
+          const isActive = active === item.value;
+          return (
+            <button
+              key={item.value}
+              ref={isActive ? activeRef : undefined}
+              onClick={() => { onSelect(item.value); onClose?.(); }}
+              className={cn(
+                "w-full group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all relative overflow-hidden",
+                isActive
+                  ? "bg-gradient-to-r from-primary/20 via-primary/10 to-transparent text-primary font-semibold shadow-sm"
+                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+              )}
+            >
+              {isActive && <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r bg-primary" />}
+              <span className={cn("shrink-0 transition-transform group-hover:scale-110", isActive && "text-primary")}>
+                {item.icon}
+              </span>
+              <span className="flex-1 text-left truncate">{item.label}</span>
+              {!!item.badge && item.badge > 0 && (
+                <span className="shrink-0 min-w-[20px] h-5 px-1.5 rounded-full bg-destructive text-destructive-foreground text-[11px] font-bold flex items-center justify-center">
+                  {item.badge > 99 ? "99+" : item.badge}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </nav>
+    </ScrollArea>
+  );
+};
 
 interface ProfileSidebarProps {
   role: ProfileRole;
@@ -105,6 +143,8 @@ interface ProfileSidebarProps {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   title?: string;
+  /** Comptes de badge par valeur d'onglet (ex. `{ duels: 2 }`) — voir `useProfileTabs`. */
+  badges?: Record<string, number>;
 }
 
 const LogoutFooter = () => {
@@ -130,8 +170,8 @@ const LogoutFooter = () => {
   );
 };
 
-const ProfileSidebar = ({ role, active, onSelect, open, onOpenChange, title }: ProfileSidebarProps) => {
-  const items = useProfileTabs(role);
+const ProfileSidebar = ({ role, active, onSelect, open, onOpenChange, title, badges }: ProfileSidebarProps) => {
+  const items = useProfileTabs(role, badges);
   const { t } = useLanguage();
   const headerTitle = title || (role === "artist" ? t("sbArtist") : role === "manager" ? t("sbManager") : t("sbFan"));
 

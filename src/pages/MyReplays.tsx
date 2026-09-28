@@ -24,6 +24,7 @@ interface Replay {
   views_count: number;
   recorded_date: string;
   is_premium: boolean;
+  is_public?: boolean;
   duel_id: string | null;
   competition_id?: string | null;
   source_type?: string | null;
@@ -62,10 +63,11 @@ const MyReplays = () => {
       }
       const compIds = (managedComps || []).map((c: any) => c.id);
 
-      // TODO(migration): no endpoint for "duels I participate in / manage" nor for
-      // "competitions where I'm an approved candidate". These lookups are degraded:
-      // listReplays({mine:"true"}) already returns replays the caller authored or
-      // performed in, which covers the common case.
+      // `listReplays({mine:"true"})` now also matches duels where the caller is EITHER
+      // combatant (fixed server-side — a duel replay only carries one `artist_id`, so the
+      // second participant used to never match). Kept below as an extra safety net for
+      // competitions: a manager's `created_by` should already cover it, but this catches any
+      // older row that predates that guarantee.
       let compReplays: Replay[] = [];
       if (compIds.length > 0) {
         compReplays = (await listReplays({ competitionIds: compIds.join(","), limit: 100 })) as unknown as Replay[];
@@ -155,7 +157,12 @@ const MyReplays = () => {
                   <div className="absolute inset-0 bg-background/40 group-hover:bg-background/20 transition-all flex items-center justify-center">
                     <Play className="w-12 h-12 text-foreground opacity-90" />
                   </div>
-                  {replay.is_premium && (
+                  {replay.is_public === false && (
+                    <Badge className="absolute top-2 right-2 bg-muted text-foreground border border-border">
+                      Brouillon — à publier
+                    </Badge>
+                  )}
+                  {replay.is_public !== false && replay.is_premium && (
                     <Badge className="absolute top-2 right-2 bg-amber-500 text-white">
                       Premium
                     </Badge>

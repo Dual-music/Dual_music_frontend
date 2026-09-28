@@ -14,6 +14,8 @@ interface VideoUploadProps {
   folder?: string;
   category?: UploadCategory;
   className?: string;
+  /** Notifie le formulaire englobant du début/fin d'upload (voir `ImageUpload`). */
+  onUploadingChange?: (uploading: boolean) => void;
 }
 
 export const VideoUpload = ({
@@ -22,7 +24,8 @@ export const VideoUpload = ({
   label = "Vidéo",
   folder = "videos",
   category,
-  className = ""
+  className = "",
+  onUploadingChange,
 }: VideoUploadProps) => {
   const resolveCategory = (): UploadCategory => {
     if (category) return category;
@@ -36,6 +39,8 @@ export const VideoUpload = ({
   const [progress, setProgress] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+
+  const setUploadingState = (v: boolean) => { setUploading(v); onUploadingChange?.(v); };
 
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -61,7 +66,7 @@ export const VideoUpload = ({
       return;
     }
 
-    setUploading(true);
+    setUploadingState(true);
     setProgress(0);
 
     try {
@@ -108,7 +113,7 @@ export const VideoUpload = ({
         variant: "destructive",
       });
     } finally {
-      setUploading(false);
+      setUploadingState(false);
       setProgress(0);
     }
   };

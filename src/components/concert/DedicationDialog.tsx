@@ -15,21 +15,24 @@ import { useToast } from "@/hooks/use-toast";
 import { Heart, Loader2, Wallet } from "lucide-react";
 import { useWallet } from "@/hooks/useWallet";
 import { useNavigate } from "react-router-dom";
+import { useRoomEvent } from "@/realtime/useRoom";
 
 interface Props {
   concertId: string;
   artistName: string;
   concertType?: "artist_concert" | "artist_live";
   disabled?: boolean;
+  /** Prix minimum propre à CET événement (surcharge le défaut global si fourni). */
+  minPriceOverride?: number | null;
 }
 
 const DEFAULT_MIN = 10;
 
-export const DedicationDialog = ({ concertId, artistName, concertType = "artist_concert", disabled }: Props) => {
+export const DedicationDialog = ({ concertId, artistName, concertType = "artist_concert", disabled, minPriceOverride }: Props) => {
   const { toast } = useToast();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { balance, isAuthenticated } = useWallet();
+  const { balance, isAuthenticated, refresh: refreshWallet } = useWallet();
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [price, setPrice] = useState<number>(DEFAULT_MIN);
@@ -54,14 +57,43 @@ export const DedicationDialog = ({ concertId, artistName, concertType = "artist_
 
   useEffect(() => {
     if (!open) return;
-    getPublicSetting<any>("economic_config", null).then((cfg) => {
-      const section = concertType === "artist_live" ? (cfg?.dedication_live ?? cfg?.dedication) : cfg?.dedication;
-      const m = Number(section?.min_price_credits ?? DEFAULT_MIN);
-      setMin(m);
-      setPrice((p) => (p < m ? m : p));
-    }).catch(() => {});
+    // La surcharge propre à l'événement (fixée par l'artiste) prime sur le défaut global —
+    // sans elle, le fan pouvait voir un minimum différent de celui réellement appliqué côté serveur.
+    if (minPriceOverride != null) {
+      setMin(minPriceOverride);
+      setPrice((p) => (p < minPriceOverride ? minPriceOverride : p));
+    } else {
+      getPublicSetting<any>("economic_config", null).then((cfg) => {
+        const section = concertType === "artist_live" ? (cfg?.dedication_live ?? cfg?.dedication) : cfg?.dedication;
+        const m = Number(section?.min_price_credits ?? DEFAULT_MIN);
+        setMin(m);
+        setPrice((p) => (p < m ? m : p));
+      }).catch(() => {});
+    }
     loadExisting();
-  }, [open, concertType]);
+  }, [open, concertType, minPriceOverride]);
+
+  // Décision de l'artiste (accepté = débité MAINTENANT, rejeté = aucun débit, livré) — synchronisé
+  // en direct : le solde et le statut « en attente » se mettent à jour SANS recharger la page,
+  // pour ne jamais laisser croire au fan qu'il a encore un solde qu'il n'a plus.
+  useRoomEvent<{ fan_id?: string; status?: string; price_credits?: number }>(
+    "/live",
+    concertType === "artist_live" ? "live" : "concert",
+    concertId || null,
+    "dedication:update",
+    (p) => {
+      if (!user || p?.fan_id !== user.id) return;
+      if (p.status === "paid") {
+        refreshWallet();
+        toast({ title: "Dédicace acceptée !", description: `${p.price_credits ?? ""} crédits ont été débités de ton solde.` });
+      } else if (p.status === "rejected") {
+        toast({ title: "Dédicace refusée", description: "L'artiste n'a pas pu y donner suite — aucun crédit débité." });
+      } else if (p.status === "delivered") {
+        toast({ title: "🎉 Dédicace interprétée !", description: "L'artiste vient de la faire en direct." });
+      }
+      loadExisting();
+    },
+  );
 
   const submit = async () => {
     if (!isAuthenticated) {
@@ -93,6 +125,7 @@ export const DedicationDialog = ({ concertId, artistName, concertType = "artist_
       const desc =
         code === "insufficient_balance" ? "Solde insuffisant." :
         code === "dedications_disabled" ? `Ce ${eventLabel} n'accepte pas les dédicaces.` :
+        code === "dedications_closed_live" ? "Les demandes de dédicace pour ce concert doivent être faites avant le direct." :
         code === "concert_not_found" ? "Concert introuvable." :
         code === "live_not_found" ? "Live introuvable." :
         (e instanceof Error ? e.message : "Erreur");

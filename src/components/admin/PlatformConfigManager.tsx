@@ -22,7 +22,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Settings, Coins, CreditCard, Save, Network, RefreshCcw, Loader2, Wallet, Banknote, Smartphone, Plus, Trash2, AlertTriangle, HardDrive, Cloud, CheckCircle2, AlertCircle, Video } from "lucide-react";
+import { Settings, Coins, CreditCard, Save, Network, RefreshCcw, Loader2, Wallet, Banknote, Smartphone, Plus, Trash2, AlertTriangle, HardDrive, Cloud, CheckCircle2, AlertCircle, Video, UserPlus, Music, Upload, X } from "lucide-react";
+import { uploadFile } from "@/api/endpoints/uploads";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -91,6 +92,11 @@ const PlatformConfigManager = () => {
   const [payoutCfg, setPayoutCfg] = useState<PayoutConfig>(DEFAULT_PAYOUT_CONFIG);
   const [liveReportCfg, setLiveReportCfg] = useState<LiveReportConfig>(DEFAULT_LIVE_REPORT_CONFIG);
   const [recordingCfg, setRecordingCfg] = useState<RecordingConfig>(DEFAULT_RECORDING_CONFIG);
+  // Connexion Google sur mobile — désactivée par défaut (demande explicite).
+  const [googleSigninEnabled, setGoogleSigninEnabled] = useState<boolean>(false);
+  // Ajout manuel de candidat par le manager (compétitions, walk-in présentiel) — désactivé par
+  // défaut (demande explicite) : réglage global, pas par compétition.
+  const [manualCandidatesEnabled, setManualCandidatesEnabled] = useState<boolean>(false);
 
   const [managerReqEnabled, setManagerReqEnabled] = useState<boolean>(true);
   const [artistReqEnabled, setArtistReqEnabled] = useState<boolean>(true);
@@ -102,6 +108,12 @@ const PlatformConfigManager = () => {
   const [storage, setStorage] = useState<admin.StorageInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // Son joué à l'annonce du vainqueur (duel/concert/compétition) — `null` = son par défaut
+  // côté client. Téléversé immédiatement au choix du fichier (comme un avatar/pochette),
+  // mais l'URL n'est persistée en réglage plateforme qu'au clic sur "Enregistrer" (cohérent
+  // avec le reste de cette page, en un seul lot).
+  const [winnerSoundUrl, setWinnerSoundUrl] = useState<string | null>(null);
+  const [winnerSoundUploading, setWinnerSoundUploading] = useState(false);
 
   useEffect(() => { loadData(); }, []);
 
@@ -136,6 +148,11 @@ const PlatformConfigManager = () => {
       if (settings["artist_requests_enabled"] !== undefined) {
         setArtistReqEnabled(readEnabled(settings["artist_requests_enabled"]));
       }
+      const googleVal = settings["google_signin_config"] as Record<string, unknown> | undefined;
+      // Absent en base = jamais configuré → défaut désactivé (demande explicite), pas `true`.
+      setGoogleSigninEnabled(googleVal?.enabled === true);
+      const manualCandVal = settings["manual_candidates_config"] as Record<string, unknown> | undefined;
+      setManualCandidatesEnabled(manualCandVal?.enabled === true);
       const providersVal = settings["payment_providers_config"] as Record<string, unknown> | undefined;
       if (providersVal) {
         setProviders({
@@ -170,6 +187,8 @@ const PlatformConfigManager = () => {
           stop_percentage: Number(reportVal.stop_percentage ?? DEFAULT_LIVE_REPORT_CONFIG.stop_percentage) || 75,
         });
       }
+      const winnerSoundVal = settings["winner_sound_url"];
+      setWinnerSoundUrl(typeof winnerSoundVal === "string" && winnerSoundVal ? winnerSoundVal : null);
       const recVal = settings["recording_config"] as Partial<RecordingConfig> | undefined;
       if (recVal) {
         setRecordingCfg({
@@ -191,6 +210,38 @@ const PlatformConfigManager = () => {
     setLoading(false);
   };
 
+  /**
+   * Téléverse le nouveau son d'annonce du vainqueur (catégorie `sound`, 10 Mo max côté serveur)
+   * ET l'active IMMÉDIATEMENT (au lieu d'attendre le clic sur le bouton "Enregistrer" du bas,
+   * commun à tous les autres réglages de cette page) — sans ça, l'upload semblait réussi et le
+   * son était même écoutable ici, mais restait sans effet réel tant qu'on n'avait pas aussi
+   * cliqué sur "Enregistrer" tout en bas : un piège UX signalé (le fichier était bien envoyé,
+   * mais jamais persisté comme réglage actif).
+   */
+  const handleWinnerSoundUpload = async (file: File) => {
+    setWinnerSoundUploading(true);
+    try {
+      const url = await uploadFile(file, "sound");
+      setWinnerSoundUrl(url);
+      await updatePlatformSetting("winner_sound_url", url);
+      toast({ title: "Son téléversé et activé" });
+    } catch (e) {
+      toast({ title: t("error"), description: e instanceof Error ? e.message : "", variant: "destructive" });
+    } finally {
+      setWinnerSoundUploading(false);
+    }
+  };
+
+  /** Revient au son par défaut — activé immédiatement, même logique que l'upload. */
+  const handleWinnerSoundReset = async () => {
+    setWinnerSoundUrl(null);
+    try {
+      await updatePlatformSetting("winner_sound_url", null);
+      toast({ title: "Son par défaut restauré" });
+    } catch (e) {
+      toast({ title: t("error"), description: e instanceof Error ? e.message : "", variant: "destructive" });
+    }
+  };
 
   const toggleProvider = (key: keyof PaymentProvidersConfig, next: boolean) => {
     const updated = { ...providers, [key]: next };
@@ -273,6 +324,9 @@ const PlatformConfigManager = () => {
         updatePlatformSetting("payout_config", payoutJson),
         updatePlatformSetting("live_report_config", liveReportJson),
         updatePlatformSetting("recording_config", recordingCfg),
+        updatePlatformSetting("google_signin_config", { enabled: googleSigninEnabled }),
+        updatePlatformSetting("manual_candidates_config", { enabled: manualCandidatesEnabled }),
+        updatePlatformSetting("winner_sound_url", winnerSoundUrl),
       ]);
       toast({ title: t("adminPlatformConfigSaved") });
     } catch (e) {
@@ -410,6 +464,44 @@ const PlatformConfigManager = () => {
               <p className="text-sm text-muted-foreground">{t("adminManagerRequestsToggleDesc")}</p>
             </div>
             <Switch checked={managerReqEnabled} disabled={roleReqLoading} onCheckedChange={(v) => toggleRoleRequests("manager_requests_enabled", v)} />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Connexion / inscription mobile */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Smartphone className="w-5 h-5" /> {t("adminAuthMobileTitle") || "Connexion mobile"}</CardTitle>
+          <CardDescription>{t("adminAuthMobileDesc") || "Options de connexion disponibles sur l'app mobile."}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg">
+            <div>
+              <Label className="text-base font-medium">{t("adminGoogleSigninToggle") || "Connexion avec Google (mobile)"}</Label>
+              <p className="text-sm text-muted-foreground">
+                {t("adminGoogleSigninToggleDesc") || "Désactivée par défaut. Une fois activée, le bouton apparaît sur l'écran de connexion mobile."}
+              </p>
+            </div>
+            <Switch checked={googleSigninEnabled} onCheckedChange={setGoogleSigninEnabled} />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Compétitions */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><UserPlus className="w-5 h-5" /> {t("adminCompetitionsTitle") || "Compétitions"}</CardTitle>
+          <CardDescription>{t("adminCompetitionsDesc") || "Options avancées de gestion des candidatures aux compétitions."}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg">
+            <div>
+              <Label className="text-base font-medium">{t("adminManualCandidatesToggle") || "Ajout manuel de candidat"}</Label>
+              <p className="text-sm text-muted-foreground">
+                {t("adminManualCandidatesToggleDesc") || "Désactivé par défaut. Permet au manager d'enregistrer directement un artiste (candidature présentiel), sans passer par la candidature en ligne."}
+              </p>
+            </div>
+            <Switch checked={manualCandidatesEnabled} onCheckedChange={setManualCandidatesEnabled} />
           </div>
         </CardContent>
       </Card>
@@ -671,6 +763,60 @@ const PlatformConfigManager = () => {
               />
               <p className="text-xs text-muted-foreground mt-1">Défaut : 75 %. Arrêt 5 min après franchissement.</p>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Son de l'annonce du vainqueur (duel/concert/compétition) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Music className="w-5 h-5" /> Son de l'annonce du vainqueur</CardTitle>
+          <CardDescription>
+            Joué en boucle quand le manager annonce le vainqueur (duel, concert, compétition), jusqu'à
+            ce qu'il arrête l'annonce. Téléverse un fichier audio court (MP3/WAV/OGG, 10 Mo max) pour
+            remplacer le son par défaut — modifiable à tout moment.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {winnerSoundUrl ? (
+            <div className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
+              <audio controls src={winnerSoundUrl} className="h-9 flex-1 min-w-0" />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={handleWinnerSoundReset}
+                title="Revenir au son par défaut"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground p-3 bg-muted/30 rounded-lg">
+              Son par défaut actuel (aucun fichier personnalisé téléversé).
+            </p>
+          )}
+          <div>
+            <input
+              id="winner-sound-input"
+              type="file"
+              accept="audio/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) handleWinnerSoundUpload(file);
+              }}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              disabled={winnerSoundUploading}
+              onClick={() => document.getElementById("winner-sound-input")?.click()}
+            >
+              {winnerSoundUploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+              {winnerSoundUploading ? "Téléversement..." : (winnerSoundUrl ? "Remplacer le son" : "Téléverser un son")}
+            </Button>
           </div>
         </CardContent>
       </Card>

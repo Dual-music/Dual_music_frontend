@@ -11,11 +11,12 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useUiPreferences } from "@/hooks/useUiPreferences";
 import { formatTz } from "@/lib/datetime";
 import * as wallet from "@/api/endpoints/wallet";
+import * as competitionsApi from "@/api/endpoints/competitions";
 import { ApiError } from "@/api/http";
 import { useToast } from "@/hooks/use-toast";
 
 interface Props {
-  type: "duel" | "concert";
+  type: "duel" | "concert" | "competition";
   scheduledAt: string | null | undefined;
   status: string | null | undefined;
   eventId: string;
@@ -64,7 +65,7 @@ export const ScheduledAccessGate = ({
     ? formatTz(scheduledAt, "dd MMMM yyyy HH:mm", { timezone: prefs.timezone, language })
     : "";
 
-  const msgKey = type === "duel" ? "scheduledNotStartedMsgDuel" : "scheduledNotStartedMsgConcert";
+  const msgKey = type === "duel" ? "scheduledNotStartedMsgDuel" : type === "competition" ? "scheduledNotStartedMsgCompetition" : "scheduledNotStartedMsgConcert";
   const baseMessage = (t(msgKey) || "").replace("{date}", formatted);
   const message = liveRequiresPayment
     ? (language === "fr"
@@ -85,6 +86,8 @@ export const ScheduledAccessGate = ({
       const idemKey = crypto.randomUUID();
       if (type === "duel") {
         await wallet.buyDuelTicket({ duelId: eventId }, idemKey);
+      } else if (type === "competition") {
+        await competitionsApi.buyTicket(eventId, {}, idemKey);
       } else {
         await wallet.buyConcertTicket({ concertId: eventId }, idemKey);
       }
@@ -100,6 +103,8 @@ export const ScheduledAccessGate = ({
 
   const canPay = !isActor && !hasTicket && Number(ticketPrice) > 0;
   const isFreeForAll = !isActor && !hasTicket && Number(ticketPrice) === 0;
+  // Chaque type a sa propre page catalogue — /lives n'est PAS la page concerts.
+  const backRoute = type === "duel" ? "/duels" : type === "competition" ? "/competitions" : "/concerts";
 
   return (
     <AlertDialog open>
@@ -119,7 +124,7 @@ export const ScheduledAccessGate = ({
         )}
 
         <AlertDialogFooter className="gap-2">
-          <Button variant="outline" onClick={() => navigate(type === "duel" ? "/duels" : "/lives")}>
+          <Button variant="outline" onClick={() => navigate(backRoute)}>
             {t("scheduledBackHome")}
           </Button>
           {canPay && (
@@ -129,7 +134,7 @@ export const ScheduledAccessGate = ({
             </Button>
           )}
           {isFreeForAll && (
-            <AlertDialogAction onClick={() => navigate(type === "duel" ? "/duels" : "/lives")}>
+            <AlertDialogAction onClick={() => navigate(backRoute)}>
               {t("scheduledBackHome")}
             </AlertDialogAction>
           )}

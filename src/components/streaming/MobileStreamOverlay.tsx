@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Heart, Send, Gift, Trophy, Users, X, Reply, Smile, Settings, UserPlus, Mic, MicOff, Video, VideoOff, LogOut, Pause, Play, Eye, EyeOff, Hand, Clock, FileText, Disc, Swords, MessageCircle, SwitchCamera, Megaphone } from "lucide-react";
+import { Heart, Send, Gift, Trophy, Users, X, Reply, Smile, Settings, UserPlus, Mic, MicOff, Video, VideoOff, LogOut, Pause, Play, Eye, EyeOff, Hand, Clock, FileText, Disc, Swords, MessageCircle, SwitchCamera, Megaphone, Ban, Lock } from "lucide-react";
 import { FloatingHearts, useFloatingHearts } from "@/components/animations/FloatingHearts";
 import { FloatingEmojis, EmojiReactionBar, useFloatingEmojis, type FloatingEmoji } from "@/components/animations/FloatingEmojis";
 
@@ -68,6 +68,14 @@ interface MobileStreamOverlayProps {
   chatMessages: ChatMsg[];
   onSendMessage: (msg: string, parentId?: string | null) => void;
   currentUserId: string | null;
+  /** Current user can ban chatters / hide messages (host or an appointed moderator). Never grants the chat on/off toggle. */
+  canModerate?: boolean;
+  /** Called when `canModerate` taps the ban icon on someone else's message. */
+  onBanUser?: (msg: ChatMsg) => void;
+  /** True when the current viewer cannot send chat messages (banned, or host disabled chat). */
+  chatDisabled?: boolean;
+  /** Reason shown as placeholder / compose-button label when `chatDisabled` is true. */
+  chatDisabledLabel?: string;
   hearts: { id: number; x: number; scale: number; color: string }[];
   floatingEmojis?: FloatingEmoji[];
   onEmojiReact?: (emoji: string) => void;
@@ -105,6 +113,10 @@ interface MobileStreamOverlayProps {
   sponsorAdContent?: React.ReactNode;
   /** Hide standalone quick-action icons on the left (mic/cam/pause/stop/switch) — kept only in the "Contrôles du Live" popup. Used for competitions to save space. */
   compactArtistControls?: boolean;
+  /** Une bande de vignettes multi-cam (compétition en ligne, plusieurs candidats) est affichée
+   *  en haut de l'écran par le composant vidéo sous-jacent — décale le rail gauche pour ne pas
+   *  se superposer aux vignettes. */
+  hasTopThumbnails?: boolean;
 }
 
 export const MobileStreamOverlay = ({
@@ -116,6 +128,10 @@ export const MobileStreamOverlay = ({
   chatMessages,
   onSendMessage,
   currentUserId,
+  canModerate,
+  onBanUser,
+  chatDisabled,
+  chatDisabledLabel,
   hearts,
   floatingEmojis: floatingEmojisProp,
   onEmojiReact,
@@ -151,6 +167,7 @@ export const MobileStreamOverlay = ({
   voteBarContent,
   sponsorAdContent,
   compactArtistControls,
+  hasTopThumbnails,
 }: MobileStreamOverlayProps) => {
   const isMobile = useIsMobile();
   const { t } = useLanguage();
@@ -254,7 +271,7 @@ export const MobileStreamOverlay = ({
   }, [chatMessages]);
 
   const handleSend = () => {
-    if (!newMessage.trim()) return;
+    if (!newMessage.trim() || chatDisabled) return;
     onSendMessage(newMessage.trim(), replyTo?.id || null);
     setNewMessage("");
     setReplyTo(null);
@@ -326,8 +343,12 @@ export const MobileStreamOverlay = ({
         </div>
       </div>
 
-      {/* LEFT side vertical control icons */}
-      <div className={`absolute left-3 ${voteBarContent ? 'top-[4.5rem]' : 'top-14'} flex flex-col gap-2 pointer-events-auto z-40`}>
+      {/* LEFT side vertical control icons — décalé sous la bande de vignettes multi-cam
+          (compétition en ligne) quand elle est affichée, pour ne pas s'y superposer. */}
+      <div
+        className={`absolute left-3 ${voteBarContent ? 'top-[4.5rem]' : 'top-14'} flex flex-col gap-2 pointer-events-auto z-40`}
+        style={hasTopThumbnails ? { top: voteBarContent ? '11rem' : 'calc(3.5rem + 4.75rem)' } : undefined}
+      >
         {/* Hide ALL overlay button (X) */}
         <button
           onClick={() => setHideOverlay(true)}
@@ -590,6 +611,16 @@ export const MobileStreamOverlay = ({
                   {msg.message}
                 </button>
               </div>
+              {canModerate && msg.user_id !== currentUserId && (
+                <button
+                  type="button"
+                  onClick={() => onBanUser?.(msg)}
+                  className="shrink-0 mt-1.5 text-white/70 hover:text-destructive"
+                  title="Bannir"
+                >
+                  <Ban className="w-3 h-3" />
+                </button>
+              )}
             </motion.div>
           ))}
         </AnimatePresence>
@@ -637,11 +668,16 @@ export const MobileStreamOverlay = ({
         <div className="px-3 pointer-events-auto" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
           <div className="flex gap-2 items-center">
             <button
-              onClick={openCommentPopup}
-              className="flex-1 flex gap-2 items-center bg-background/30 backdrop-blur-md rounded-full px-3 py-2 border border-border/20"
+              onClick={chatDisabled ? undefined : openCommentPopup}
+              disabled={chatDisabled}
+              className={`flex-1 flex gap-2 items-center backdrop-blur-md rounded-full px-3 py-2 border ${chatDisabled ? "bg-background/10 border-border/10 opacity-60" : "bg-background/30 border-border/20"}`}
             >
-              <MessageCircle className="w-4 h-4 text-muted-foreground shrink-0" />
-              <span className="text-sm text-muted-foreground">Message...</span>
+              {chatDisabled ? (
+                <Lock className="w-4 h-4 text-muted-foreground shrink-0" />
+              ) : (
+                <MessageCircle className="w-4 h-4 text-muted-foreground shrink-0" />
+              )}
+              <span className="text-sm text-muted-foreground truncate">{chatDisabled ? (chatDisabledLabel || "Chat désactivé") : "Message..."}</span>
             </button>
 
             <button
@@ -1080,20 +1116,22 @@ export const MobileStreamOverlay = ({
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleSend()}
-                  placeholder="Votre message..."
+                  placeholder={chatDisabled ? (chatDisabledLabel || "Chat désactivé") : "Votre message..."}
                   maxLength={200}
                   autoFocus
+                  disabled={chatDisabled}
                   className="flex-1 h-10 text-sm"
                 />
                 <button
                   onClick={() => setShowChatEmoji(v => !v)}
-                  className="text-muted-foreground hover:text-foreground shrink-0 text-lg"
+                  disabled={chatDisabled}
+                  className="text-muted-foreground hover:text-foreground shrink-0 text-lg disabled:opacity-40"
                 >
                   😀
                 </button>
                 <button
                   onClick={handleSend}
-                  disabled={!newMessage.trim()}
+                  disabled={!newMessage.trim() || chatDisabled}
                   className="w-10 h-10 rounded-full bg-primary flex items-center justify-center disabled:opacity-50 shrink-0"
                 >
                   <Send className="w-4 h-4 text-primary-foreground" />

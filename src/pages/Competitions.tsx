@@ -17,14 +17,17 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { listCompetitions, myTickets as fetchMyTickets } from "@/api/endpoints/competitions";
+import { listCompetitions } from "@/api/endpoints/competitions";
 import { listReplays } from "@/api/endpoints/replays";
 import { formatTz } from "@/lib/datetime";
 import { useUiPreferences } from "@/hooks/useUiPreferences";
-import { Trophy, MapPin, Globe, Radio, Calendar, Video, Play, Lock } from "lucide-react";
+import { Trophy, MapPin, Globe, Radio, Calendar, Video, Play, Lock, Megaphone } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { AuthRequiredDialog } from "@/components/auth/AuthRequiredDialog";
 import { PriceBadge } from "@/components/profile/PriceBadge";
+
+/** `true` seulement si une date limite est fixée ET déjà dépassée (pas de date = jamais fermé). */
+const isDeadlinePassed = (deadline?: string | null) => !!deadline && new Date(deadline).getTime() < Date.now();
 
 const Competitions = () => {
   const { t, language } = useLanguage();
@@ -35,7 +38,6 @@ const Competitions = () => {
   const [list, setList] = useState<any[]>([]);
   const [replays, setReplays] = useState<any[]>([]);
   const [showAuthDialog, setShowAuthDialog] = useState(false);
-  const [myTickets, setMyTickets] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     (async () => {
@@ -44,8 +46,12 @@ const Competitions = () => {
           listCompetitions({ status: "published", limit: 100 }),
           listCompetitions({ status: "live", limit: 100 }),
         ]);
+        // Les plus récemment créées en premier (le backend renvoie déjà chaque appel trié par
+        // `created_at DESC`, mais fusionner deux listes distinctes — publiées + en direct — sans
+        // retrier perd cet ordre). Avant ce correctif, le tri se faisait par `start_at` croissant
+        // (date de début programmée), ce qui n'a rien à voir avec la récence de création.
         const merged = [...(pub as any[]), ...(live as any[])].sort(
-          (a, b) => new Date(a.start_at || 0).getTime() - new Date(b.start_at || 0).getTime(),
+          (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime(),
         );
         setList(merged);
       } catch {
@@ -61,20 +67,6 @@ const Competitions = () => {
     })();
   }, []);
 
-  useEffect(() => {
-    if (!currentUserId) { setMyTickets(new Set()); return; }
-    let active = true;
-    (async () => {
-      try {
-        const ids = await fetchMyTickets();
-        if (active) setMyTickets(new Set((ids as string[]) || []));
-      } catch {
-        if (active) setMyTickets(new Set());
-      }
-    })();
-    return () => { active = false; };
-  }, [currentUserId]);
-
   // A competition is considered live if its status is live, or if it's
   // published and the start time has passed (and it hasn't ended yet).
   const isLiveNow = (c: any) => {
@@ -84,13 +76,6 @@ const Competitions = () => {
     const start = c.start_at ? new Date(c.start_at).getTime() : 0;
     const end = c.end_at ? new Date(c.end_at).getTime() : Number.POSITIVE_INFINITY;
     return start > 0 && start <= now && now < end;
-  };
-
-  const hasAccess = (c: any) => {
-    const price = Number(c.viewer_ticket_price) || 0;
-    if (price <= 0) return true;
-    if (c.manager_id && c.manager_id === currentUserId) return true;
-    return myTickets.has(c.id);
   };
 
   const liveList = list.filter(isLiveNow);
@@ -104,7 +89,6 @@ const Competitions = () => {
 
   const CompetitionCard = ({ c }: { c: any }) => {
     const live = isLiveNow(c);
-    const canWatch = hasAccess(c);
     return (
       <Card
         className={`overflow-hidden cursor-pointer hover:border-primary/50 hover:shadow-glow transition-all ${live ? "ring-2 ring-red-500" : ""}`}
@@ -138,9 +122,33 @@ const Competitions = () => {
             <Calendar className="w-4 h-4" />
             <span>{formatTz(c.start_at, "PPp", { timezone: prefs.timezone, language })}</span>
           </div>
-          <Button className={`w-full mt-2 ${live ? "bg-red-500 hover:bg-red-600" : "bg-gradient-primary hover:shadow-glow"} transition-all`}>
-            {live || canWatch ? (t("watchLive") || t("watchLiveConcert")) : t("buyTicket")}
-          </Button>
+          {live ? (
+            <Button className="w-full mt-2 bg-red-500 hover:bg-red-600 transition-all">
+              {t("watchLive") || t("watchLiveConcert")}
+            </Button>
+          ) : (
+            // Avant le direct : "Voir les détails" (candidature, règlement, achat de ticket) et
+            // "Sponsoriser" côte à côte — un bouton d'orientation clair, plutôt qu'un unique
+            // bouton "Acheter un ticket" trompeur pour un artiste qui veut candidater.
+            <div className="flex gap-2 mt-2">
+              <Button className="flex-1 bg-gradient-primary hover:shadow-glow transition-all">
+                {t("compViewDetails") || "Voir les détails"}
+              </Button>
+              {c.accepts_sponsors !== false && !isDeadlinePassed(c.sponsor_submission_deadline) && (
+                <Button
+                  variant="outline"
+                  className="flex-1 gap-2"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (!currentUserId) { setShowAuthDialog(true); return; }
+                    navigate("/profile", { state: { openSponsorFor: { eventType: "competition", eventId: c.id } } });
+                  }}
+                >
+                  <Megaphone className="w-4 h-4 text-amber-500" /> {t("requestSponsor") || "Sponsoriser"}
+                </Button>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
     );

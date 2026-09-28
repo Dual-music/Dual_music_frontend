@@ -98,3 +98,31 @@ export function listCompetitionBans(query?: Record<string, string | number | und
 export function createWarning(input: Record<string, unknown>): Promise<Record<string, unknown>> {
   return http.post("/moderation/warnings", input);
 }
+
+export type EventType = "live" | "concert" | "duel" | "competition";
+
+/**
+ * GET /moderation/events/:type/:id/viewers — users currently connected to this
+ * event's room (host only). Source pool for {@link appointModerator}.
+ */
+export function listCurrentViewers(type: EventType, id: string): Promise<Array<Record<string, unknown>>> {
+  return http.get(`/moderation/events/${type}/${id}/viewers`);
+}
+
+/** GET /moderation/events/:type/:id/moderators — this event's appointed moderators. */
+export function listEventModerators(type: EventType, id: string): Promise<Array<Record<string, unknown>>> {
+  return http.get(`/moderation/events/${type}/${id}/moderators`);
+}
+
+/**
+ * POST /moderation/events/:type/:id/moderators — appoints a viewer as this
+ * event's moderator (host only, max 2 per event).
+ */
+export function appointModerator(type: EventType, id: string, userId: string): Promise<Record<string, unknown>> {
+  return http.post(`/moderation/events/${type}/${id}/moderators`, { userId });
+}
+
+/** DELETE /moderation/events/:type/:id/moderators/:userId — revokes an appointed moderator (host only). */
+export function revokeModerator(type: EventType, id: string, userId: string): Promise<void> {
+  return http.delete(`/moderation/events/${type}/${id}/moderators/${userId}`);
+}

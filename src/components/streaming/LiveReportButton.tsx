@@ -22,7 +22,7 @@ import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle } from "lucide-react";
-import { reportLive } from "@/api/endpoints/moderation";
+import { reportLive, reportCompetition } from "@/api/endpoints/moderation";
 import { reportSummary } from "@/api/endpoints/lives";
 import { getPublicSetting } from "@/api/endpoints/settings";
 import { ApiError } from "@/api/http";
@@ -93,13 +93,15 @@ export const LiveReportButton = ({
   const [config, setConfig] = useState<ReportConfig>(DEFAULT_REPORT_CONFIG);
   const [warningIssued, setWarningIssued] = useState(false);
 
-  // Per-live report summary (count + caller's own report status). Only lives are
-  // backed by `live_reports`; other stream types rely on the DB-side threshold
-  // trigger, so the count stays at 0 for them.
+  // Compte de signalements (+ statut du caller) : `live_reports` sert de table générique aux 3
+  // types "direct" (live/concert/duel), filtrés par `live_id` — donc valable pour les 3.
+  // La compétition a sa propre table (`competition_reports`) sans résumé équivalent ici ; la
+  // décision reste de toute façon prise CÔTÉ SERVEUR (voir `moderation.service.js`), ce compteur
+  // n'est qu'un affichage informatif.
   const { data: summary } = useQuery({
     queryKey: ["live-report-summary", liveId],
     queryFn: () => reportSummary(liveId),
-    enabled: streamType === "live" && !!liveId,
+    enabled: streamType !== "competition" && !!liveId,
     refetchInterval: 15000,
   });
   const reportCount = summary?.count ?? 0;
@@ -128,7 +130,10 @@ export const LiveReportButton = ({
     loadSettings();
   }, [liveId, user?.id]);
 
-  // Check auto-stop condition
+  // Avertissement local (informatif) quand le seuil est atteint — la décision d'arrêt réelle est
+  // prise CÔTÉ SERVEUR juste après l'enregistrement de CHAQUE signalement (voir
+  // `moderation.service.js#maybeAutoStop`), donc appliquée de façon identique quel que soit le
+  // client d'origine (web ou mobile) et sans dépendre d'un minuteur local à cet onglet.
   useEffect(() => {
     if (viewerCount >= config.viewer_threshold && reportCount > 0) {
       const percentage = (reportCount / Math.max(1, viewerCount)) * 100;
@@ -136,15 +141,12 @@ export const LiveReportButton = ({
         setWarningIssued(true);
         toast({
           title: "⚠️ Avertissement",
-          description: "Cet événement a reçu trop de signalements. Il sera arrêté dans 5 minutes si les signalements persistent.",
+          description: "Cet événement a reçu trop de signalements et va être arrêté.",
           variant: "destructive",
         });
-        setTimeout(() => {
-          onAutoStop?.();
-        }, 5 * 60 * 1000);
       }
     }
-  }, [reportCount, viewerCount, config, warningIssued, onAutoStop, toast]);
+  }, [reportCount, viewerCount, config, warningIssued, toast]);
 
   const handleReport = async () => {
     if (!user) {
@@ -153,7 +155,13 @@ export const LiveReportButton = ({
     }
 
     try {
-      await reportLive({ liveId, streamType, reason });
+      // La compétition a sa propre table (`competition_reports`) — les 3 autres types partagent
+      // `live_reports`, distingués par `streamType` (voir `moderation.service.js#createReport`).
+      if (streamType === "competition") {
+        await reportCompetition({ competitionId: liveId, reason });
+      } else {
+        await reportLive({ liveId, streamType, reason });
+      }
       setHasReported(true);
       toast({ title: "Signalement envoyé", description: "Merci pour votre signalement." });
     } catch (e) {
