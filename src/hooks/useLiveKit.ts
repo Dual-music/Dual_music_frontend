@@ -23,9 +23,32 @@ import {
   LocalTrack,
   RemoteParticipant,
   ConnectionState,
+  DisconnectReason,
   VideoPresets,
 } from "livekit-client";
 import * as livekit from "@/api/endpoints/livekit";
+import { getDeviceId } from "@/lib/deviceId";
+
+/**
+ * Raisons de déconnexion DÉFINITIVES : on ne retente pas (sinon ping-pong entre deux connexions
+ * du même compte, ou réessais inutiles sur une room fermée / un participant expulsé).
+ */
+const FINAL_DISCONNECT_REASONS = new Set<DisconnectReason>([
+  DisconnectReason.CLIENT_INITIATED,
+  DisconnectReason.DUPLICATE_IDENTITY,
+  DisconnectReason.PARTICIPANT_REMOVED,
+  DisconnectReason.ROOM_DELETED,
+  DisconnectReason.ROOM_CLOSED,
+  DisconnectReason.USER_REJECTED,
+]);
+const REJOIN_DELAYS_MS = [1500, 3000, 6000, 10000, 15000];
+
+/**
+ * Clé d'un participant distant = son `userId`. L'identité LiveKit brute est `userId#deviceId`
+ * (voir lib/deviceId.ts) ; on la ramène au `userId` pour que toutes les comparaisons existantes
+ * avec des ids métier (candidats bannis, profils, focus imposé…) restent valables.
+ */
+const peerKey = (p: { identity: string }) => p.identity.split("#")[0];
 
 interface UseLiveKitConfig {
   roomName: string;
@@ -65,10 +88,22 @@ export const useLiveKit = ({
   const [isConnected, setIsConnected] = useState(false);
   const [connectionState, setConnectionState] = useState<string>("new");
   const [peerCount, setPeerCount] = useState(0);
+  /**
+   * `false` quand le navigateur bloque la lecture audio (autoplay) : la page doit afficher un
+   * bouton « Activer le son » qui appelle [startAudio]. `true` par défaut (rien à faire).
+   */
+  const [canPlaybackAudio, setCanPlaybackAudio] = useState(true);
+  /** Incrémenté quand le SFU change MES permissions (ex. droit de publier accordé à chaud). */
+  const [permissionsVersion, setPermissionsVersion] = useState(0);
 
   const roomRef = useRef<Room | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const isJoinedRef = useRef(false);
+  /** Vrai entre `joinRoom()` et `leaveRoom()` : autorise la reconnexion automatique. */
+  const wantsConnectionRef = useRef(false);
+  const rejoinAttemptRef = useRef(0);
+  const rejoinTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const joinRoomRef = useRef<() => Promise<void>>(async () => {});
 
   // Stable callback refs
   const onRemoteStreamRef = useRef(onRemoteStream);
@@ -93,6 +128,8 @@ export const useLiveKit = ({
         isHost,
         participantName: participantName || userId,
         canPublish: canPublish ?? isHost,
+        // Identité LiveKit unique par onglet/appareil (voir lib/deviceId.ts).
+        deviceId: getDeviceId(),
       });
 
       if (!data?.token) {
@@ -129,7 +166,7 @@ export const useLiveKit = ({
     room.remoteParticipants.forEach((participant) => {
       const stream = buildStreamForParticipant(participant);
       if (stream.getTracks().length > 0) {
-        newStreams.set(participant.identity, stream);
+        newStreams.set(peerKey(participant), stream);
       }
     });
 
@@ -198,6 +235,11 @@ export const useLiveKit = ({
   // Join the LiveKit room
   const joinRoom = useCallback(async () => {
     if (isJoinedRef.current) return;
+    wantsConnectionRef.current = true;
+    if (rejoinTimerRef.current) {
+      clearTimeout(rejoinTimerRef.current);
+      rejoinTimerRef.current = null;
+    }
 
     try {
       setConnectionState("connecting");
@@ -240,21 +282,21 @@ export const useLiveKit = ({
 
       // Remote participant joins
       room.on(RoomEvent.ParticipantConnected, (participant) => {
-        console.log("[LiveKit] Participant joined:", participant.identity);
+        console.log("[LiveKit] Participant joined:", peerKey(participant));
         setPeerCount(room.remoteParticipants.size);
-        onPeerJoinRef.current?.(participant.identity);
+        onPeerJoinRef.current?.(peerKey(participant));
       });
 
       // Remote participant leaves
       room.on(RoomEvent.ParticipantDisconnected, (participant) => {
-        console.log("[LiveKit] Participant left:", participant.identity);
+        console.log("[LiveKit] Participant left:", peerKey(participant));
         setRemoteStreams((prev) => {
           const updated = new Map(prev);
-          updated.delete(participant.identity);
+          updated.delete(peerKey(participant));
           return updated;
         });
         setPeerCount(room.remoteParticipants.size);
-        onPeerLeaveRef.current?.(participant.identity);
+        onPeerLeaveRef.current?.(peerKey(participant));
       });
 
       // Track subscribed (remote track available).
@@ -262,18 +304,18 @@ export const useLiveKit = ({
       // instead of creating a brand-new one, so viewer <video> elements
       // keep their srcObject reference and don't restart (no visible cut).
       room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
-        console.log("[LiveKit] Track subscribed:", track.kind, "from", participant.identity);
+        console.log("[LiveKit] Track subscribed:", track.kind, "from", peerKey(participant));
         setRemoteStreams((prev) => {
           const updated = new Map(prev);
-          let stream = updated.get(participant.identity);
+          let stream = updated.get(peerKey(participant));
           if (!stream) {
             stream = new MediaStream();
-            updated.set(participant.identity, stream);
+            updated.set(peerKey(participant), stream);
           }
           // Only add if not already there — avoids duplicate track errors.
           const already = stream.getTracks().some((t) => t.id === track.mediaStreamTrack.id);
           if (!already) stream.addTrack(track.mediaStreamTrack);
-          onRemoteStreamRef.current?.(stream, participant.identity);
+          onRemoteStreamRef.current?.(stream, peerKey(participant));
           return updated;
         });
       });
@@ -282,14 +324,14 @@ export const useLiveKit = ({
       // (keep the same MediaStream reference so the <video> element does not
       // reload its srcObject).
       room.on(RoomEvent.TrackUnsubscribed, (track, publication, participant) => {
-        console.log("[LiveKit] Track unsubscribed:", track.kind, "from", participant.identity);
+        console.log("[LiveKit] Track unsubscribed:", track.kind, "from", peerKey(participant));
         setRemoteStreams((prev) => {
           const updated = new Map(prev);
-          const stream = updated.get(participant.identity);
+          const stream = updated.get(peerKey(participant));
           if (stream) {
             try { stream.removeTrack(track.mediaStreamTrack); } catch {}
             if (stream.getTracks().length === 0) {
-              updated.delete(participant.identity);
+              updated.delete(peerKey(participant));
             }
           }
           return updated;
@@ -313,13 +355,44 @@ export const useLiveKit = ({
         setIsConnected(true);
       });
 
-      room.on(RoomEvent.Disconnected, () => {
-        console.log("[LiveKit] Disconnected");
+      // Autoplay audio bloqué par le navigateur → la page affiche « Activer le son ».
+      room.on(RoomEvent.AudioPlaybackStatusChanged, () => {
+        setCanPlaybackAudio(room.canPlaybackAudio);
+      });
+      // Le backend accorde/retire le droit de publier à chaud (invité accepté/retiré).
+      room.on(RoomEvent.ParticipantPermissionsChanged, () => setPermissionsVersion((v) => v + 1));
+
+      room.on(RoomEvent.Disconnected, (reason) => {
+        console.log("[LiveKit] Disconnected", reason);
+        // Un handler d'une ANCIENNE room ne doit pas écraser la room courante (remount rapide).
+        if (roomRef.current !== room) return;
         setIsConnected(false);
         setConnectionState("disconnected");
-        // Allow the outer auto-reconnect effect to call joinRoom() again.
         isJoinedRef.current = false;
         roomRef.current = null;
+
+        // Reconnexion automatique : le SDK ne la tente que pour les coupures réseau courtes ;
+        // au-delà (ou après un redémarrage du serveur) il émet `Disconnected` et c'était
+        // définitif → participant muet sans recours. On rejoint avec un jeton frais.
+        if (!wantsConnectionRef.current) return;
+        if (reason !== undefined && FINAL_DISCONNECT_REASONS.has(reason)) {
+          if (reason === DisconnectReason.DUPLICATE_IDENTITY) {
+            onErrorRef.current?.("Connecté ailleurs avec ce compte : cette connexion a été fermée");
+          }
+          return;
+        }
+        const attempt = rejoinAttemptRef.current;
+        if (attempt >= REJOIN_DELAYS_MS.length) {
+          setConnectionState("failed");
+          onErrorRef.current?.("Connexion au direct perdue");
+          return;
+        }
+        rejoinAttemptRef.current = attempt + 1;
+        setConnectionState("reconnecting");
+        rejoinTimerRef.current = setTimeout(() => {
+          rejoinTimerRef.current = null;
+          if (wantsConnectionRef.current && !isJoinedRef.current) void joinRoomRef.current();
+        }, REJOIN_DELAYS_MS[attempt]);
       });
 
       // Connect to room with timeout
@@ -329,10 +402,12 @@ export const useLiveKit = ({
       );
 
       await Promise.race([connectPromise, timeoutPromise]);
-      
+
       isJoinedRef.current = true;
+      rejoinAttemptRef.current = 0;
       setIsConnected(true);
       setConnectionState("connected");
+      setCanPlaybackAudio(room.canPlaybackAudio);
 
       console.log("[LiveKit] Connected to room:", roomName);
 
@@ -352,14 +427,95 @@ export const useLiveKit = ({
         roomRef.current = null;
       }
       isJoinedRef.current = false;
-      
+
       const message = err.message || "Impossible de rejoindre la salle";
       onErrorRef.current?.(message);
+
+      // Échec de connexion initiale (réseau instable, jeton lent…) : on réessaie aussi, avec le
+      // même backoff que la reconnexion — sinon un spectateur arrivé pendant une micro-coupure
+      // restait définitivement sans son ni image.
+      if (wantsConnectionRef.current) {
+        const attempt = rejoinAttemptRef.current;
+        if (attempt < REJOIN_DELAYS_MS.length) {
+          rejoinAttemptRef.current = attempt + 1;
+          rejoinTimerRef.current = setTimeout(() => {
+            rejoinTimerRef.current = null;
+            if (wantsConnectionRef.current && !isJoinedRef.current) void joinRoomRef.current();
+          }, REJOIN_DELAYS_MS[attempt]);
+        }
+      }
     }
   }, [getToken, roomName, buildStreamForParticipant, updateRemoteStreams]);
+  joinRoomRef.current = joinRoom;
+
+  /** Vrai si le jeton courant autorise la publication (invité accepté, hôte). */
+  const hasPublishPermission = useCallback((): boolean => {
+    const room = roomRef.current;
+    return !!room && room.state === ConnectionState.Connected && room.localParticipant.permissions?.canPublish === true;
+  }, []);
+
+  /**
+   * Aligne les pistes publiées sur `stream` (publie les nouvelles, remplace celles changées —
+   * flip caméra —, dépublie celles disparues, reflète `track.enabled` en mute/unmute côté SFU).
+   * Publie DIRECTEMENT les pistes du MediaStream fourni par la page (pas de seconde capture
+   * caméra/micro). Sans effet tant que la room n'est pas connectée : rappeler à la connexion.
+   * `null` = tout dépublier (descente de scène).
+   */
+  const publishStreamTracks = useCallback(async (stream: MediaStream | null) => {
+    const room = roomRef.current;
+    if (!room || room.state !== ConnectionState.Connected) return;
+    const lp = room.localParticipant;
+    const kinds: Array<{ kind: "audio" | "video"; source: Track.Source }> = [
+      { kind: "audio", source: Track.Source.Microphone },
+      { kind: "video", source: Track.Source.Camera },
+    ];
+    for (const { kind, source } of kinds) {
+      const wanted = stream?.getTracks().find((t) => t.kind === kind && t.readyState === "live") ?? null;
+      const pub = lp.getTrackPublication(source);
+      const published = pub?.track?.mediaStreamTrack ?? null;
+      try {
+        if (!wanted) {
+          // `false` : la piste appartient à la page, ne pas la stopper.
+          if (pub?.track) await lp.unpublishTrack(pub.track, false);
+          continue;
+        }
+        if (published && published.id !== wanted.id && pub?.track) await lp.unpublishTrack(pub.track, false);
+        let current = lp.getTrackPublication(source);
+        if (!current?.track) {
+          await lp.publishTrack(wanted, { source, name: kind === "audio" ? "microphone" : "camera" });
+          current = lp.getTrackPublication(source);
+        }
+        if (current?.track) {
+          if (wanted.enabled && current.isMuted) await current.track.unmute();
+          if (!wanted.enabled && !current.isMuted) await current.track.mute();
+        }
+      } catch (err) {
+        console.warn(`[LiveKit] publication ${kind} :`, err);
+        onErrorRef.current?.(kind === "audio" ? "Impossible de publier le micro" : "Impossible de publier la caméra");
+      }
+    }
+  }, []);
+
+  /** Débloque la lecture audio après un geste utilisateur (autoplay bloqué). */
+  const startAudio = useCallback(async () => {
+    const room = roomRef.current;
+    if (!room) return;
+    try {
+      await room.startAudio();
+      setCanPlaybackAudio(room.canPlaybackAudio);
+    } catch (err) {
+      console.warn("[LiveKit] startAudio failed:", err);
+    }
+  }, []);
 
   // Leave the room
   const leaveRoom = useCallback(async () => {
+    wantsConnectionRef.current = false;
+    rejoinAttemptRef.current = 0;
+    if (rejoinTimerRef.current) {
+      clearTimeout(rejoinTimerRef.current);
+      rejoinTimerRef.current = null;
+    }
     const room = roomRef.current;
     if (room) {
       room.disconnect();
@@ -486,6 +642,11 @@ export const useLiveKit = ({
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      wantsConnectionRef.current = false;
+      if (rejoinTimerRef.current) {
+        clearTimeout(rejoinTimerRef.current);
+        rejoinTimerRef.current = null;
+      }
       if (roomRef.current) {
         roomRef.current.disconnect();
         roomRef.current = null;
@@ -504,6 +665,11 @@ export const useLiveKit = ({
     connectionState,
     peerCount,
     room: roomRef.current,
+    canPlaybackAudio,
+    startAudio,
+    permissionsVersion,
+    hasPublishPermission,
+    publishStreamTracks,
     startLocalStream,
     joinRoom,
     leaveRoom,

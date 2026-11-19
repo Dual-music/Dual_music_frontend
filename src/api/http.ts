@@ -188,12 +188,25 @@ async function parse<T>(res: Response): Promise<{ data: T; meta: ResponseMeta }>
 }
 
 /** Performs a request and returns just the `data` payload. */
+/**
+ * Événement `window` émis après chaque écriture réussie (POST/PUT/PATCH/DELETE). Permet aux
+ * éléments d'interface globaux (pastilles des menus — `hooks/useMenuBadges`) de se rafraîchir
+ * juste après une action, sans que chaque écran ait à les prévenir.
+ */
+export const MUTATION_EVENT = "dm:api-mutation";
+
+function notifyMutation(method: RequestOptions["method"]): void {
+  if (!method || method === "GET" || typeof window === "undefined") return;
+  window.dispatchEvent(new Event(MUTATION_EVENT));
+}
+
 export async function request<T>(
   path: string,
   options: RequestOptions = {},
 ): Promise<T> {
   const res = await execute(path, options);
   const { data } = await parse<T>(res);
+  notifyMutation(options.method);
   return data;
 }
 

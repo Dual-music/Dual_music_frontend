@@ -1,11 +1,19 @@
 /**
- * Viewer WebRTC concert : abonnement LiveKit, gestion qualité adaptative, fallback HLS.
+ * Viewer WebRTC (concert + live) : abonnement LiveKit à la room UNIQUE de l'événement.
+ *
+ * - Affiche la vidéo de l'HÔTE (`hostId`) ; les autres publieurs de la room (invités d'un live)
+ *   sont exposés au parent via `onRemoteStreamsChange` pour les vignettes, et leur audio est joué
+ *   ici par `RemoteAudioSink` (tout le monde entend tous ceux qui parlent).
+ * - Un spectateur devenu INVITÉ publie ses propres pistes dans cette même room (`canPublish` +
+ *   `publishStream`) : plus de room séparée par invité. Le droit de publier est accordé à chaud
+ *   par le backend ; à défaut, on se reconnecte une fois avec un jeton qui l'inclut.
  */
 import { useEffect, useRef, useState } from "react";
 import { useLiveKit } from "@/hooks/useLiveKit";
-import { Radio, Wifi, WifiOff, VideoOff } from "lucide-react";
+import { Radio, Wifi, WifiOff, VideoOff, Volume2 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { RemoteAudioSink } from "@/components/streaming/RemoteAudioSink";
 
 interface WebRTCViewerProps {
   roomId: string;
@@ -13,6 +21,14 @@ interface WebRTCViewerProps {
   concertTitle: string;
   artistName: string;
   artistAvatarUrl?: string | null;
+  /** Id (userId) de l'hôte : seul SON flux est affiché en grand. Absent → premier flux reçu. */
+  hostId?: string | null;
+  /** Je suis un invité accepté : je peux publier dans la room. */
+  canPublish?: boolean;
+  /** Mes pistes (caméra/micro) à publier quand `canPublish` ; `null` = rien / dépublier. */
+  publishStream?: MediaStream | null;
+  /** Tous les flux distants (hôte + invités), par userId — pour les vignettes du parent. */
+  onRemoteStreamsChange?: (streams: Map<string, MediaStream>) => void;
   onError?: (error: string) => void;
 }
 
@@ -22,6 +38,10 @@ export const WebRTCViewer = ({
   concertTitle,
   artistName,
   artistAvatarUrl,
+  hostId,
+  canPublish = false,
+  publishStream = null,
+  onRemoteStreamsChange,
   onError,
 }: WebRTCViewerProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -31,7 +51,12 @@ export const WebRTCViewer = ({
   // Track if remote video is actually active — driven by track events, not per-render inspection.
   // This avoids the false "camera off" flash on initial subscription when track.muted is briefly true.
   const [remoteVideoActive, setRemoteVideoActive] = useState(false);
+  // Autoplay audio bloqué par le navigateur (aucun geste utilisateur encore) → bouton « Activer le son ».
+  const [audioBlocked, setAudioBlocked] = useState(false);
   const hasJoinedRef = useRef(false);
+
+  const hostIdRef = useRef(hostId);
+  hostIdRef.current = hostId;
 
   const {
     remoteStreams,
@@ -40,11 +65,20 @@ export const WebRTCViewer = ({
     peerCount,
     joinRoom,
     leaveRoom,
+    canPlaybackAudio,
+    startAudio,
+    permissionsVersion,
+    hasPublishPermission,
+    publishStreamTracks,
   } = useLiveKit({
     roomName: roomId,
     userId: viewerId,
     isHost: false,
+    canPublish,
     onRemoteStream: (stream, peerId) => {
+      // Room unique : les invités publient aussi ici — seul l'HÔTE va dans la vue principale.
+      const h = hostIdRef.current;
+      if (h && peerId !== h) return;
       console.log("Received remote stream from host:", peerId);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -53,6 +87,8 @@ export const WebRTCViewer = ({
       }
     },
     onPeerLeave: (peerId) => {
+      const h = hostIdRef.current;
+      if (h && peerId !== h) return;
       console.log("Host disconnected:", peerId);
       setHasRemoteStream(false);
       setRemoteVideoActive(false);
@@ -85,19 +121,57 @@ export const WebRTCViewer = ({
     }
   }, [connectionState]);
 
-  // Update video element when remote streams change
+  // Flux de l'hôte (par userId) — ou le premier reçu quand l'hôte n'est pas identifié (concert).
+  const hostStream = hostId ? (remoteStreams.get(hostId) ?? null) : (Array.from(remoteStreams.values())[0] ?? null);
+
+  // Remonte TOUS les flux distants au parent (vignettes des invités).
   useEffect(() => {
-    const streams = Array.from(remoteStreams.values());
-    if (streams.length > 0 && videoRef.current) {
-      videoRef.current.srcObject = streams[0];
+    onRemoteStreamsChange?.(remoteStreams);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remoteStreams]);
+
+  // Update video element when the host stream changes
+  useEffect(() => {
+    if (hostStream && videoRef.current) {
+      if (videoRef.current.srcObject !== hostStream) videoRef.current.srcObject = hostStream;
       setHasRemoteStream(true);
       setIsConnecting(false);
+    } else if (!hostStream) {
+      setHasRemoteStream(false);
     }
-  }, [remoteStreams]);
+  }, [hostStream]);
+
+  // Publication (invité accepté) : attend le droit de publier accordé à chaud par le backend
+  // (ParticipantPermissionsChanged) ; s'il n'arrive pas vite, se reconnecte UNE fois avec un
+  // jeton qui l'inclut. `canPublish` retombé à false (retiré/descendu) → tout dépublier.
+  const reconnectingForPublishRef = useRef(false);
+  useEffect(() => {
+    if (!canPublish) {
+      void publishStreamTracks(null);
+      return;
+    }
+    if (!isConnected) return;
+    if (hasPublishPermission()) {
+      void publishStreamTracks(publishStream ?? null);
+      return;
+    }
+    if (reconnectingForPublishRef.current) return;
+    const timer = setTimeout(async () => {
+      if (hasPublishPermission() || reconnectingForPublishRef.current) return;
+      reconnectingForPublishRef.current = true;
+      try {
+        await leaveRoom();
+        await joinRoom();
+      } finally {
+        reconnectingForPublishRef.current = false;
+      }
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [canPublish, publishStream, isConnected, permissionsVersion, hasPublishPermission, publishStreamTracks, leaveRoom, joinRoom]);
 
   // Track remote video active state via track events
   useEffect(() => {
-    const remoteStream = Array.from(remoteStreams.values())[0];
+    const remoteStream = hostStream;
     if (!remoteStream) {
       setRemoteVideoActive(false);
       return;
@@ -144,7 +218,7 @@ export const WebRTCViewer = ({
       remoteStream.removeEventListener("removetrack", onRemove);
       clearInterval(interval);
     };
-  }, [remoteStreams]);
+  }, [hostStream]);
 
   const getConnectionStatus = () => {
     switch (connectionState) {
@@ -167,16 +241,36 @@ export const WebRTCViewer = ({
     joinRoom();
   };
 
+  const soundBlocked = audioBlocked || !canPlaybackAudio;
+  const unlockSound = () => {
+    void startAudio();
+    setAudioBlocked(false);
+  };
+
   return (
     <div className="relative w-full h-full bg-black rounded-lg overflow-hidden">
       {/* object-contain (pas cover) : évite de rogner le flux mobile portrait dans le conteneur
-          16:9 desktop (tête/bas du corps invisibles côté PC) — voir WebRTCHost.tsx. */}
+          16:9 desktop (tête/bas du corps invisibles côté PC) — voir WebRTCHost.tsx.
+          `muted` : l'audio est joué par RemoteAudioSink ci-dessous pour TOUS les publieurs de la
+          room (pas seulement le premier flux affiché), avec déblocage autoplay. */}
       <video
         ref={videoRef}
         autoPlay
         playsInline
+        muted
         className="w-full h-full object-contain"
       />
+      <RemoteAudioSink streams={remoteStreams} onBlockedChange={setAudioBlocked} />
+
+      {soundBlocked && hasRemoteStream && (
+        <button
+          type="button"
+          onClick={unlockSound}
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 flex items-center gap-2 rounded-full bg-black/80 px-5 py-3 text-white font-semibold shadow-lg ring-2 ring-primary animate-pulse"
+        >
+          <Volume2 className="w-5 h-5" /> Activer le son
+        </button>
+      )}
 
       {/* Camera-off overlay — show artist avatar instead of black screen when host's camera is off */}
       {hasRemoteStream && !remoteVideoActive && (

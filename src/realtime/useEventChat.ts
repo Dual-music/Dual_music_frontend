@@ -23,7 +23,15 @@ export interface ChatMessage {
   message: string;
   parent_id?: string | null;
   created_at: string;
-  profile?: { id: string; full_name: string | null; avatar_url: string | null } | null;
+  profile?: {
+    id: string;
+    /** Jamais vide côté backend (nom complet, sinon repli dérivé de l'e-mail/téléphone). */
+    full_name: string | null;
+    /** Nom de scène → nom complet → repli. À préférer pour l'affichage. */
+    display_name?: string | null;
+    stage_name?: string | null;
+    avatar_url: string | null;
+  } | null;
   [key: string]: unknown;
 }
 

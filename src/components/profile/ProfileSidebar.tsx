@@ -14,6 +14,7 @@ import {
   PlayCircle,
 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useProfileBadgeCounts } from "@/hooks/useMenuBadges";
 
 export type ProfileRole = "fan" | "artist" | "manager";
 
@@ -26,9 +27,8 @@ export interface ProfileTabItem {
 }
 
 /**
- * @param badges Comptes à injecter par valeur d'onglet (ex. `{ duels: 2 }`) — le sidebar reste
- *   agnostique de leur origine ; l'appelant (Profile.tsx) les charge une seule fois au montage
- *   pour qu'ils soient visibles immédiatement, sans avoir à ouvrir l'onglet concerné.
+ * @param badges Comptes à injecter par valeur d'onglet (ex. `{ duels: 2 }`). `ProfileSidebar`
+ *   les fournit lui-même via `useProfileBadgeCounts` (rafraîchis automatiquement).
  */
 export function useProfileTabs(role: ProfileRole, badges?: Record<string, number>): ProfileTabItem[] {
   const { t } = useLanguage();
@@ -171,7 +171,9 @@ const LogoutFooter = () => {
 };
 
 const ProfileSidebar = ({ role, active, onSelect, open, onOpenChange, title, badges }: ProfileSidebarProps) => {
-  const items = useProfileTabs(role, badges);
+  // Compteurs tenus à jour automatiquement, quelle que soit la page qui affiche le menu.
+  const liveBadges = useProfileBadgeCounts();
+  const items = useProfileTabs(role, { ...badges, ...liveBadges });
   const { t } = useLanguage();
   const headerTitle = title || (role === "artist" ? t("sbArtist") : role === "manager" ? t("sbManager") : t("sbFan"));
 

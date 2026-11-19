@@ -61,7 +61,7 @@ export const ConcertChat = ({ concertId }: ConcertChatProps) => {
     () =>
       rawMessages.map(m => ({
         ...m,
-        user_name: m.profile?.full_name || t("userDefault"),
+        user_name: (m.profile?.display_name || m.profile?.full_name) || t("userDefault"),
         avatar_url: m.profile?.avatar_url ?? undefined,
       })),
     [rawMessages, t],

@@ -77,8 +77,6 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import * as users from "@/api/endpoints/users";
 import * as creators from "@/api/endpoints/creators";
-import * as duelsApi from "@/api/endpoints/duels";
-import { myPendingCandidatesCount } from "@/api/endpoints/competitions";
 import { useTransactionNotifications } from "@/hooks/useTransactionNotifications";
 import { useUiPreferences } from "@/hooks/useUiPreferences";
 import { formatTz } from "@/lib/datetime";
@@ -136,13 +134,6 @@ const Profile = () => {
   const [bio, setBio] = useState("");
   const [phone, setPhone] = useState("");
   const [countryCode, setCountryCode] = useState("FR");
-  // Invitations de duel reçues, en attente d'acceptation — chargé au montage (pas seulement à
-  // l'ouverture de l'onglet Duels) pour que le badge du menu soit visible immédiatement.
-  const [pendingDuelInvites, setPendingDuelInvites] = useState(0);
-  // Candidatures en attente cumulées sur toutes les compétitions du manager — chargé au montage
-  // pour que le badge du menu "Mes compétitions" soit visible immédiatement (même logique que
-  // pendingDuelInvites ci-dessus).
-  const [pendingCandidatesCount, setPendingCandidatesCount] = useState(0);
   const [artistStats, setArtistStats] = useState<ArtistStats>({ totalVotes: 0, totalGifts: 0, totalDuels: 0, wonDuels: 0 });
   const [managerStats, setManagerStats] = useState<ManagerStats>({ totalDuelsManaged: 0, activeDuels: 0, totalGiftsReceived: 0 });
   const [fanStats, setFanStats] = useState<FanStats>({ totalVotesCast: 0, totalGiftsSent: 0, totalTickets: 0 });
@@ -181,37 +172,6 @@ const Profile = () => {
     }
     setRoles(authRoles as string[]);
   }, [authProfile, authRoles]);
-
-  // Badge du menu Duels (artiste) : invitations reçues encore en attente.
-  useEffect(() => {
-    if (!user || !roles.includes("artist")) { setPendingDuelInvites(0); return; }
-    let active = true;
-    (async () => {
-      try {
-        const all = (await duelsApi.myDuelRequests()) as any[];
-        const count = all.filter((r) => r.opponent_id === user.id && r.status === "pending").length;
-        if (active) setPendingDuelInvites(count);
-      } catch {
-        if (active) setPendingDuelInvites(0);
-      }
-    })();
-    return () => { active = false; };
-  }, [user, roles]);
-
-  // Badge du menu "Mes compétitions" (manager) : candidatures en attente sur toutes ses compétitions.
-  useEffect(() => {
-    if (!user || !roles.includes("manager")) { setPendingCandidatesCount(0); return; }
-    let active = true;
-    (async () => {
-      try {
-        const res = await myPendingCandidatesCount();
-        if (active) setPendingCandidatesCount(res?.count || 0);
-      } catch {
-        if (active) setPendingCandidatesCount(0);
-      }
-    })();
-    return () => { active = false; };
-  }, [user, roles]);
 
   // Fetch wallet balance + consolidated stats (artist/manager/fan) via REST.
   useEffect(() => {
@@ -431,7 +391,6 @@ const Profile = () => {
               open={sidebarOpen}
               onOpenChange={setSidebarOpen}
               title={getRoleTitle()}
-              badges={{ duels: pendingDuelInvites, competitions: pendingCandidatesCount }}
             />
           )}
           <div className="flex-1 min-w-0 max-w-5xl space-y-6">

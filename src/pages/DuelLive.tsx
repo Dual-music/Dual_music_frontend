@@ -254,9 +254,9 @@ const DuelLive = () => {
         message: m.message,
         parent_id: m.parent_id ?? null,
         user_id: m.user_id,
-        user_name: m.profile?.full_name || "Utilisateur",
+        user_name: (m.profile?.display_name || m.profile?.full_name) || "Utilisateur",
         avatar_url: m.profile?.avatar_url ?? null,
-        reply_to_name: parent ? (parent.profile?.full_name || "Utilisateur") : undefined,
+        reply_to_name: parent ? ((parent.profile?.display_name || parent.profile?.full_name) || "Utilisateur") : undefined,
         reply_to_message: parent ? (parent.message as string) : undefined,
       };
       return dm;

@@ -35,6 +35,12 @@ interface GuestThumbnailGridProps {
   gap?: number;
   /** Whether we're on mobile (smaller thumbnails by default) */
   isMobile?: boolean;
+  /**
+   * Nombre maximal de rangées (défaut : 1 sur desktop, 2 sur mobile). Au-delà, les invités
+   * passent dans le panneau « +N » plutôt que d'empiler des vignettes qui finissent par
+   * recouvrir les badges du haut.
+   */
+  maxRows?: number;
 }
 
 /**
@@ -55,6 +61,7 @@ export const GuestThumbnailGrid = ({
   thumbHeight,
   gap = 8,
   isMobile = false,
+  maxRows,
 }: GuestThumbnailGridProps) => {
   const { t } = useLanguage();
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -83,20 +90,28 @@ export const GuestThumbnailGrid = ({
     };
   }, [containerRef]);
 
-  // Compute capacity. Reserve at minimum half the container width for the main video.
+  // Compute capacity. Reserve at minimum half the container width for the main video, and
+  // never more than `maxRows` rows (default 1 desktop / 2 mobile) so the stack cannot climb
+  // into the top badges. `bottomInset` is computed by the page from what actually sits at the
+  // bottom (host control bar, focused mini-tile…) so thumbnails never cover the buttons.
+  const rowCap = maxRows ?? (isMobile ? 2 : 1);
   const { cols, rows, capacity } = useMemo(() => {
-    if (!size.w || !size.h) return { cols: 1, rows: 1, capacity: 1 };
+    if (!size.w || !size.h) return { cols: 0, rows: 0, capacity: 0 };
 
     // Max horizontal area we may use for thumbnails (keep at least 50% of width for the video)
     const maxGridWidth = Math.max(tw, Math.min(size.w * 0.5, size.w - right - 16));
     const maxGridHeight = Math.max(th, size.h - bottom - topInset);
 
     const colsCalc = Math.max(1, Math.floor((maxGridWidth + gap) / (tw + gap)));
-    const rowsCalc = Math.max(1, Math.floor((maxGridHeight + gap) / (th + gap)));
+    const rowsCalc = Math.min(rowCap, Math.max(1, Math.floor((maxGridHeight + gap) / (th + gap))));
     return { cols: colsCalc, rows: rowsCalc, capacity: colsCalc * rowsCalc };
-  }, [size, tw, th, gap, right, bottom, topInset]);
+  }, [size, tw, th, gap, right, bottom, topInset, rowCap]);
 
   if (guests.length === 0) return null;
+  // Pas encore mesuré (premier rendu) : ne rien afficher plutôt qu'une capacité fausse qui
+  // ferait apparaître puis disparaître les vignettes. Les connexions audio/vidéo ne dépendent
+  // plus de ce rendu (connexion unique portée par la page), donc aucun flux n'est perdu pendant ce temps.
+  if (capacity === 0) return null;
 
   const hasOverflow = guests.length > capacity;
   // If overflow, reserve last cell for the "+N" chip
@@ -157,6 +172,8 @@ export const GuestThumbnailGrid = ({
                       {t("allGuests") || "Tous les invités"} ({guests.length})
                     </SheetTitle>
                   </SheetHeader>
+                  {/* Les tuiles ne portent plus de connexion : les afficher
+                      ici une seconde fois est sans effet sur l'audio/vidéo des autres. */}
                   <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[70vh] overflow-y-auto pr-1">
                     {guests.map((g) => (
                       <div
@@ -165,6 +182,7 @@ export const GuestThumbnailGrid = ({
                         onClick={() => setSheetOpen(false)}
                       >
                         <div style={{ width: tw, height: th }}>{g.node}</div>
+                        {g.name && <span className="text-[11px] text-muted-foreground truncate max-w-[96px]">{g.name}</span>}
                       </div>
                     ))}
                   </div>

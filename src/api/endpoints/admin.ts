@@ -14,6 +14,22 @@ export function getStats(): Promise<Record<string, unknown>> {
   return http.get("/admin/stats");
 }
 
+/** Compteurs des pastilles du menu admin. */
+export interface AdminBadgeCounts {
+  pendingArtistRequests: number;
+  pendingManagerRequests: number;
+  pendingDuelRequests: number;
+  pendingWithdrawals: number;
+  activeLives: number;
+  pendingSponsors: number;
+  pendingConcerts: number;
+}
+
+/** GET /admin/badge-counts — compteurs légers, rafraîchis en continu par le menu. */
+export function getBadgeCounts(): Promise<AdminBadgeCounts> {
+  return http.get("/admin/badge-counts");
+}
+
 export interface StorageInfo {
   /** Active storage driver, chosen at deploy time (`STORAGE_DRIVER`). */
   driver: "s3" | "local";

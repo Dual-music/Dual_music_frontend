@@ -62,7 +62,7 @@ import { VideoZoomWrapper } from "@/components/streaming/VideoZoomWrapper";
 import { WebRTCHost } from "@/components/concert/WebRTCHost";
 import { WebRTCViewer } from "@/components/concert/WebRTCViewer";
 import { MobileStreamOverlay } from "@/components/streaming/MobileStreamOverlay";
-import { GuestVideoBox, useGuestBroadcast } from "@/components/streaming/GuestVideoBox";
+import { GuestVideoBox } from "@/components/streaming/GuestVideoBox";
 import { GuestThumbnailGrid } from "@/components/streaming/GuestThumbnailGrid";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { WebRTCHostControls } from "@/components/concert/WebRTCHost";
@@ -127,9 +127,9 @@ const LiveStream = () => {
       const parent = m.parent_id ? byId.get(m.parent_id) : null;
       return {
         ...m,
-        user_name: m.profile?.full_name || "Anonyme",
+        user_name: m.profile?.display_name || m.profile?.full_name || "Anonyme",
         avatar_url: m.profile?.avatar_url ?? undefined,
-        reply_to_name: parent ? (parent.profile?.full_name || "Anonyme") : undefined,
+        reply_to_name: parent ? (parent.profile?.display_name || parent.profile?.full_name || "Anonyme") : undefined,
         reply_to_message: parent ? parent.message : undefined,
       };
     });
@@ -157,8 +157,6 @@ const LiveStream = () => {
     broadcastGuestState("guest_media_state", { userId: currentUserId, isMicOn: micOn, isCamOn: camOn });
   };
 
-  // Broadcast guest stream via WebRTC when this user is an accepted guest
-  useGuestBroadcast(id, currentUserId, isGuest ? guestStream : null);
   // Fetch live data
   const { data: live, isLoading, refetch } = useQuery({
     queryKey: ["live-stream", id],
@@ -177,6 +175,11 @@ const LiveStream = () => {
 
   const isArtist = currentUserId === live?.artist_id;
   const roomId = `live-${id}`;
+
+  // Room UNIQUE `live-<id>` : hôte et invités publient tous au même endroit. Les flux distants
+  // (par userId) remontent de WebRTCHost / WebRTCViewer, qui portent LA connexion de la page ;
+  // les vignettes ne font qu'afficher. L'audio de tous les publieurs est joué par ces composants.
+  const [stageStreams, setStageStreams] = useState<Map<string, MediaStream>>(new Map());
 
   // Chat moderation (ban / appointed moderators / chat on-off). This page has its own
   // bespoke chat UI (not <ThreadedChat>), so the same logic used there is mirrored here.
@@ -294,7 +297,7 @@ const LiveStream = () => {
           const profile = profileMap.get(r.user_id);
           return {
             ...r,
-            user_name: profile?.full_name || "Utilisateur",
+            user_name: profile?.display_name || profile?.full_name || "Invité",
             avatar_url: profile?.avatar_url,
           };
         }));
@@ -336,7 +339,7 @@ const LiveStream = () => {
       const profileMap = new Map((profiles as any[])?.map((p: any) => [p.id, p]) || []);
       setJoinRequests(data.map(r => ({
         ...r,
-        user_name: profileMap.get(r.user_id)?.full_name || "Utilisateur",
+        user_name: profileMap.get(r.user_id)?.display_name || profileMap.get(r.user_id)?.full_name || "Invité",
         avatar_url: profileMap.get(r.user_id)?.avatar_url,
       })));
     } catch {
@@ -804,6 +807,7 @@ const LiveStream = () => {
                       hideMobileControls={isMobile || !!focusedGuestId}
                       hideOverlays={!!focusedGuestId}
                       onControlsReady={setHostControls}
+                      onRemoteStreamsChange={setStageStreams}
                     />
                     {/* Artist name/avatar + mini controls when in small thumbnail — NO LIVE badge, viewer count or Connecté */}
                     {focusedGuestId && (
@@ -840,6 +844,10 @@ const LiveStream = () => {
                       concertTitle={live.title || "Live en cours"}
                       artistName={live.artist_name}
                       artistAvatarUrl={live.artist_avatar}
+                      hostId={live.artist_id}
+                      canPublish={isGuest}
+                      publishStream={isGuest ? guestStream : null}
+                      onRemoteStreamsChange={setStageStreams}
                     />
                     {focusedGuestId && (
                       <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-1 py-0.5 z-10">
@@ -886,6 +894,7 @@ const LiveStream = () => {
                         guestAvatarUrl={guest.avatar_url}
                         liveId={id!}
                         currentUserId={currentUserId}
+                        stream={stageStreams.get(guest.user_id) ?? null}
                         localStream={guest.user_id === currentUserId ? guestStream : undefined}
                         isMainView
                         forceMicOff={!!hostMutedGuests[guest.user_id]}
@@ -896,11 +905,20 @@ const LiveStream = () => {
                     </div>
                   ))}
 
-                {/* Responsive thumbnail grid — auto-adapts columns × rows to container size */}
+                {/* Responsive thumbnail grid — auto-adapts columns × rows to container size.
+                    `bottomInset` réserve ce qui occupe RÉELLEMENT le bas de la scène : barre de
+                    contrôles de l'hôte (desktop, pleine largeur, bottom-4) ou mini-tuile hôte/
+                    spectateur quand un invité est en grand (même coin bas-droit que la grille). */}
                 {showGuestThumbnails && (
                   <GuestThumbnailGrid
                     containerRef={videoContainerRef as React.RefObject<HTMLElement>}
                     isMobile={isMobile}
+                    bottomInset={(() => {
+                      const base = isMobile ? 156 : 16;
+                      if (focusedGuestId) return base + (isMobile ? 80 : 96) + 8;
+                      if (!isMobile && isArtist && hostControls?.isStreaming) return base + 48;
+                      return base;
+                    })()}
                     guests={acceptedGuests
                       .filter((g) => g.user_id !== focusedGuestId)
                       .map((guest) => ({
@@ -913,6 +931,7 @@ const LiveStream = () => {
                             guestAvatarUrl={guest.avatar_url}
                             liveId={id!}
                             currentUserId={currentUserId}
+                            stream={stageStreams.get(guest.user_id) ?? null}
                             localStream={guest.user_id === currentUserId ? guestStream : undefined}
                             isMainView={false}
                             forceMicOff={!!hostMutedGuests[guest.user_id]}

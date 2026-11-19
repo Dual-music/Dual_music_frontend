@@ -1,9 +1,14 @@
 /**
- * Tuile vidéo d'un invité multi-cam : nom, mute indicator, kick (host only).
+ * Tuile vidéo d'un invité multi-cam : nom, indicateurs micro/caméra, agrandir/réduire.
+ *
+ * Composant d'AFFICHAGE uniquement : la connexion LiveKit à la room de l'invité est portée par
+ * la page `LiveStream` (room unique `live-<id>`, via WebRTCHost/WebRTCViewer) qui joue aussi l'audio. Monter,
+ * démonter ou dupliquer cette tuile (focus, grille saturée, panneau « +N », vignettes masquées)
+ * n'a donc plus AUCUN effet sur ce que les autres entendent — avant, chaque tuile ouvrait sa
+ * propre connexion et sa disparition rendait l'invité inaudible.
  */
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { useLiveKit } from "@/hooks/useLiveKit";
 import { useRoomBroadcast } from "@/realtime/useRoomBroadcast";
 import { useAudioActivity } from "@/hooks/useAudioActivity";
 import { Maximize, Minimize, Video, VideoOff, Mic, MicOff, Timer } from "lucide-react";
@@ -14,6 +19,9 @@ interface GuestVideoBoxProps {
   guestAvatarUrl?: string;
   liveId: string;
   currentUserId: string | null;
+  /** Flux DISTANT de cet invité (room unique, par userId). Ignoré pour ma propre tuile. */
+  stream?: MediaStream | null;
+  /** Mon flux LOCAL (aperçu) quand la tuile est la mienne. */
   localStream?: MediaStream | null;
   isExpanded?: boolean;
   isMainView?: boolean;
@@ -21,6 +29,8 @@ interface GuestVideoBoxProps {
   timerRemaining?: number;
   timerTotal?: number;
   forceMicOff?: boolean;
+  /** État de la connexion à la room de l'invité (affiché en placeholder si pas encore connecté). */
+  connectionState?: string;
 }
 
 export const GuestVideoBox = ({
@@ -29,6 +39,7 @@ export const GuestVideoBox = ({
   guestAvatarUrl,
   liveId,
   currentUserId,
+  stream,
   localStream,
   isExpanded,
   isMainView,
@@ -36,169 +47,80 @@ export const GuestVideoBox = ({
   timerRemaining: externalTimerRemaining,
   timerTotal: externalTimerTotal,
   forceMicOff = false,
+  connectionState,
 }: GuestVideoBoxProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
   const [hasVideo, setHasVideo] = useState(false);
   const [hasAudioTrack, setHasAudioTrack] = useState(false);
   const [hasVideoTrack, setHasVideoTrack] = useState(false);
-  const [attachedStream, setAttachedStream] = useState<MediaStream | null>(null);
   const speakingTimeRemaining = externalTimerRemaining || 0;
   const speakingTimeTotal = externalTimerTotal || 0;
+  void speakingTimeTotal;
   const isMe = currentUserId === guestUserId;
-  const guestRoomId = `live-guest-${liveId}-${guestUserId}`;
+  const attachedStream: MediaStream | null = (isMe ? localStream : stream) ?? null;
 
-  // Broadcast state takes absolute priority over track inspection (no TTL)
+  // L'état diffusé par l'invité lui-même (Socket.IO) prime sur l'inspection des pistes, qui
+  // peut être trompeuse (piste « muted » quelques instants après la souscription).
   const broadcastStateRef = useRef<{ isMicOn: boolean; isCamOn: boolean } | null>(null);
 
-  const syncMediaState = useCallback((stream: MediaStream) => {
-    // If we have a broadcast state, it takes absolute priority (no TTL - stays until next broadcast)
+  const syncMediaState = useCallback((s: MediaStream | null) => {
     const bc = broadcastStateRef.current;
-    if (bc) {
+    if (bc && !isMe) {
       setHasVideo(bc.isCamOn);
       setHasVideoTrack(bc.isCamOn);
       setHasAudioTrack(bc.isMicOn);
       return;
     }
-
-    const videoTracks = stream.getVideoTracks();
-    const audioTracks = stream.getAudioTracks();
-
-    const hasLiveVideoTrack = videoTracks.some(
-      (track) => track.readyState === "live" && track.enabled && !track.muted
-    );
-    const hasLiveAudioTrack = audioTracks.some(
-      (track) => track.readyState === "live" && track.enabled && !track.muted
-    );
-
-    setHasVideo(hasLiveVideoTrack);
-    setHasVideoTrack(hasLiveVideoTrack);
-    setHasAudioTrack(hasLiveAudioTrack);
-  }, []);
-
-  const attachStream = useCallback((stream: MediaStream) => {
-    if (videoRef.current && videoRef.current.srcObject !== stream) {
-      videoRef.current.srcObject = stream;
-      videoRef.current.play().catch((err) => {
-        console.warn("[GuestVideoBox] Video autoplay blocked:", err);
-      });
-    }
-    // Always attach to audio element as fallback for audio-only streams
-    // This ensures audio plays even when video element can't autoplay audio-only content
-    if (audioRef.current && audioRef.current.srcObject !== stream) {
-      audioRef.current.srcObject = stream;
-      audioRef.current.play().catch((err) => {
-        console.warn("[GuestVideoBox] Audio fallback autoplay blocked:", err);
-        // Retry on next user interaction
-        const retryPlay = () => {
-          audioRef.current?.play().catch(() => {});
-          document.removeEventListener('click', retryPlay);
-          document.removeEventListener('touchstart', retryPlay);
-        };
-        document.addEventListener('click', retryPlay, { once: true });
-        document.addEventListener('touchstart', retryPlay, { once: true });
-      });
-    }
-    setAttachedStream(stream);
-    syncMediaState(stream);
-  }, [syncMediaState]);
-
-  const {
-    remoteStreams,
-    joinRoom,
-    leaveRoom,
-    startLocalStream,
-    toggleAudio,
-    toggleVideo,
-  } = useLiveKit({
-    roomName: guestRoomId,
-    userId: currentUserId || "anon",
-    isHost: isMe,
-    canPublish: isMe,
-    onRemoteStream: (stream: MediaStream) => {
-      if (!isMe) attachStream(stream);
-    },
-    onPeerLeave: () => {
-      setHasVideo(false);
-      setHasVideoTrack(false);
-      setHasAudioTrack(false);
-    },
-  });
-
-  // For self (isMe): when localStream changes, attach and publish/unpublish via LiveKit.
-  // CRITICAL: toggleAudio/toggleVideo actually mute/unmute the published tracks at the SFU level,
-  // so other participants stop receiving the stream when toggled off.
-  const lastPublishedRef = useRef<{ video: boolean; audio: boolean }>({ video: false, audio: false });
-  useEffect(() => {
-    if (!isMe || !localStream) return;
-    attachStream(localStream);
-    const wantsVideo = localStream.getVideoTracks().some(t => t.enabled && t.readyState === "live");
-    const wantsAudio = localStream.getAudioTracks().some(t => t.enabled && t.readyState === "live");
-
-    // First time → start local stream so LiveKit publishes the tracks
-    if (!lastPublishedRef.current.video && !lastPublishedRef.current.audio) {
-      startLocalStream(wantsVideo, wantsAudio);
-    } else {
-      // Subsequent toggles → just mute/unmute the published track at LiveKit level
-      if (lastPublishedRef.current.video !== wantsVideo) toggleVideo(wantsVideo);
-      if (lastPublishedRef.current.audio !== wantsAudio) toggleAudio(wantsAudio);
-    }
-    lastPublishedRef.current = { video: wantsVideo, audio: wantsAudio };
-  }, [isMe, localStream, attachStream, startLocalStream, toggleAudio, toggleVideo]);
-
-  useEffect(() => {
-    if (currentUserId) {
-      joinRoom();
-      return () => { leaveRoom(); };
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUserId]);
-
-  useEffect(() => {
-    if (!isMe) {
-      const streams = Array.from(remoteStreams.values());
-      if (streams.length > 0) {
-        attachStream(streams[0]);
-      }
-    }
-  }, [remoteStreams, isMe, attachStream]);
-
-  useEffect(() => {
-    if (!attachedStream) {
+    if (!s) {
       setHasVideo(false);
       setHasVideoTrack(false);
       setHasAudioTrack(false);
       return;
     }
+    const liveVideo = s.getVideoTracks().some((t) => t.readyState === "live" && t.enabled && !t.muted);
+    const liveAudio = s.getAudioTracks().some((t) => t.readyState === "live" && t.enabled && !t.muted);
+    setHasVideo(liveVideo);
+    setHasVideoTrack(liveVideo);
+    setHasAudioTrack(liveAudio);
+  }, [isMe]);
 
-    const handleStreamChange = () => syncMediaState(attachedStream);
+  // Attache le flux à l'élément <video> (rattaché à chaque (re)montage : callback sur le ref).
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    if (el.srcObject !== attachedStream) {
+      el.srcObject = attachedStream;
+      if (attachedStream) el.play().catch(() => { /* la vidéo est muette : l'autoplay passe presque toujours */ });
+    }
+    syncMediaState(attachedStream);
+  }, [attachedStream, syncMediaState]);
 
-    attachedStream.addEventListener("addtrack", handleStreamChange);
-    attachedStream.addEventListener("removetrack", handleStreamChange);
-
+  // Suit les changements de pistes du flux (ajout/retrait/mute).
+  useEffect(() => {
+    if (!attachedStream) return;
+    const handle = () => syncMediaState(attachedStream);
+    attachedStream.addEventListener("addtrack", handle);
+    attachedStream.addEventListener("removetrack", handle);
     const tracks = attachedStream.getTracks();
     tracks.forEach((track) => {
-      track.addEventListener("ended", handleStreamChange);
-      track.addEventListener("mute", handleStreamChange);
-      track.addEventListener("unmute", handleStreamChange);
+      track.addEventListener("ended", handle);
+      track.addEventListener("mute", handle);
+      track.addEventListener("unmute", handle);
     });
-
-    const interval = setInterval(handleStreamChange, 2000);
-
+    const interval = setInterval(handle, 2000);
     return () => {
-      attachedStream.removeEventListener("addtrack", handleStreamChange);
-      attachedStream.removeEventListener("removetrack", handleStreamChange);
+      attachedStream.removeEventListener("addtrack", handle);
+      attachedStream.removeEventListener("removetrack", handle);
       tracks.forEach((track) => {
-        track.removeEventListener("ended", handleStreamChange);
-        track.removeEventListener("mute", handleStreamChange);
-        track.removeEventListener("unmute", handleStreamChange);
+        track.removeEventListener("ended", handle);
+        track.removeEventListener("mute", handle);
+        track.removeEventListener("unmute", handle);
       });
       clearInterval(interval);
     };
   }, [attachedStream, syncMediaState]);
 
-  // Listen for broadcast media state changes — AUTHORITATIVE source (Socket.IO).
-  // Channel name must match LiveStream's broadcastMediaState channel.
+  // État micro/caméra diffusé par l'invité (canal `live-guest-state-<id>`, émis par LiveStream).
   useRoomBroadcast(
     liveId ? `live-guest-state-${liveId}` : null,
     (event, payload) => {
@@ -215,13 +137,11 @@ export const GuestVideoBox = ({
     },
   );
 
-  // Timer is now driven by props from parent (timerRemaining/timerTotal)
-
   const sizeClasses = isMainView
     ? "w-full h-full"
     : isExpanded
       ? "w-36 h-36 md:w-44 md:h-44"
-      : "w-20 h-20 md:w-24 md:h-24";
+      : "w-full h-full";
 
   const borderColor = !hasVideo && !hasAudioTrack
     ? "border-muted-foreground/50"
@@ -233,16 +153,15 @@ export const GuestVideoBox = ({
 
   const micIsOn = forceMicOff ? false : hasAudioTrack;
 
-  // Speaking detection — pulse the border when this guest is actually making sound
+  // Détection de parole — pulse quand l'invité émet réellement du son.
   const isSpeaking = useAudioActivity(attachedStream, { enabled: micIsOn && !forceMicOff });
 
   const truncatedName = guestName && guestName.length > 12 ? guestName.slice(0, 12) + "…" : guestName;
-
-  const speakingRing = "";
+  const connecting = !isMe && !attachedStream?.getTracks().length && (connectionState === "connecting" || connectionState === "reconnecting");
 
   return (
     <div
-      className={`${sizeClasses} ${isMainView ? '' : `rounded-lg ${borderColor} border-2 cursor-pointer hover:ring-2 hover:ring-primary ${speakingRing}`} overflow-hidden bg-black transition-all relative group`}
+      className={`${sizeClasses} ${isMainView ? '' : `rounded-lg ${borderColor} border-2 cursor-pointer hover:ring-2 hover:ring-primary`} overflow-hidden bg-black transition-all relative group`}
       onClick={onToggleExpand}
     >
       {isSpeaking && (
@@ -251,28 +170,17 @@ export const GuestVideoBox = ({
           className="absolute top-1 left-1 z-30 w-2 h-2 rounded-full bg-green-500 shadow-[0_0_5px_1px_rgba(34,197,94,0.7)]"
         />
       )}
-      {/* CRITICAL: Never use display:none (hidden) — it stops audio playback in most browsers.
-          Use opacity-0 so audio-only streams still play.
-          object-contain en vue PRINCIPALE (agrandie) : ne rogne jamais le cadre (le flux mobile
-          portrait dans un conteneur desktop plus large coupait tête/bas du corps). Les petites
-          vignettes gardent object-cover pour un cadrage net. */}
+      {/* `muted` TOUJOURS : l'audio distant est joué par RemoteAudioSink (une seule fois, quoi
+          qu'affiche l'écran) ; mon propre flux ne doit jamais être réentendu (larsen).
+          Jamais display:none : opacity-0 pour garder l'élément vivant.
+          object-contain en vue principale (ne rogne pas un flux mobile portrait), cover en vignette. */}
       <video
         ref={videoRef}
         autoPlay
         playsInline
-        muted={isMe}
+        muted
         className={`w-full h-full ${isMainView ? 'object-contain' : 'object-cover'} ${hasVideo ? 'opacity-100' : 'opacity-0 absolute inset-0'}`}
       />
-      {/* Hidden audio element as fallback — ensures audio-only streams play reliably
-          across all browsers, especially when mic is activated without camera */}
-      {!isMe && (
-        <audio
-          ref={audioRef}
-          autoPlay
-          playsInline
-          className="hidden"
-        />
-      )}
 
       {!hasVideo && (
         <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-primary/30 to-accent/30">
@@ -280,10 +188,13 @@ export const GuestVideoBox = ({
             <AvatarImage src={guestAvatarUrl} />
             <AvatarFallback className={isMainView ? "text-xl" : "text-xs"}>{guestName?.charAt(0)}</AvatarFallback>
           </Avatar>
+          {connecting && (
+            <span className="mt-1 text-[9px] text-white/70 animate-pulse">Connexion…</span>
+          )}
         </div>
       )}
 
-      {/* Name + status overlay */}
+      {/* Nom + indicateurs */}
       <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-1 py-0.5 flex items-center justify-between">
         <span className={`${isMainView ? 'text-xs md:text-sm' : 'text-[8px] md:text-[10px]'} text-white font-medium truncate ${isMainView ? 'max-w-[200px]' : 'max-w-[50px] md:max-w-[70px]'}`} style={{ textOverflow: 'ellipsis' }}>
           {isMainView ? guestName : truncatedName}
@@ -302,7 +213,7 @@ export const GuestVideoBox = ({
         </div>
       </div>
 
-      {/* Speaking timer overlay — visible on both small and large view */}
+      {/* Chrono de temps de parole */}
       {speakingTimeRemaining > 0 && (
         <div className={`absolute ${isMainView ? 'top-3 left-3' : 'top-1 left-1'} bg-black/80 backdrop-blur-sm rounded-lg px-1.5 py-0.5 flex items-center gap-1 z-10 ${speakingTimeRemaining <= 10 ? 'border border-destructive animate-pulse' : 'border border-accent/50'}`}>
           <Timer className={`${isMainView ? 'w-3.5 h-3.5' : 'w-2.5 h-2.5'} ${speakingTimeRemaining <= 10 ? 'text-destructive' : 'text-accent'}`} />
@@ -326,9 +237,9 @@ export const GuestVideoBox = ({
 };
 
 /**
- * Hook for a guest to broadcast their stream via WebRTC to all viewers.
+ * @deprecated La publication d'un invité est gérée par WebRTCViewer (room unique).
+ * Conservé pour compatibilité d'import ; ne fait rien.
  */
-export const useGuestBroadcast = (liveId: string | undefined, userId: string | null, stream: MediaStream | null) => {
-  // This hook is now a no-op — guest publishing is handled directly by GuestVideoBox
-  // via useLiveKit with isHost=true when isMe=true.
+export const useGuestBroadcast = (_liveId: string | undefined, _userId: string | null, _stream: MediaStream | null) => {
+  void _liveId; void _userId; void _stream;
 };

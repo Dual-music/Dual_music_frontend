@@ -56,6 +56,7 @@ import {
   Trophy, Gift, EyeOff, Settings, Megaphone, Loader2
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAdminBadgeCounts } from "@/hooks/useMenuBadges";
 import { BlogManager } from "@/components/admin/BlogManager";
 import { ModerationDashboard } from "@/components/admin/ModerationDashboard";
 import AdminStats from "@/components/admin/AdminStats";
@@ -424,11 +425,16 @@ const Admin = () => {
       .catch(() => { /* non-blocking */ });
   }, []);
 
-  const [stats, setStats] = useState({
+  const [baseStats, setStats] = useState({
     totalUsers: 0, totalConcerts: 0, totalDuels: 0, totalReplays: 0,
     pendingArtistRequests: 0, pendingManagerRequests: 0, pendingDuelRequests: 0,
     pendingWithdrawals: 0, activeLives: 0, pendingSponsors: 0, pendingConcerts: 0,
   });
+
+  // Compteurs « à traiter » tenus à jour automatiquement (mêmes valeurs que les pastilles du menu) ;
+  // ils priment sur ceux calculés au dernier chargement complet du tableau de bord.
+  const liveCounts = useAdminBadgeCounts();
+  const stats = { ...baseStats, ...(liveCounts ?? {}) };
 
   // Sidebar navigation state — synced with URL ?tab=
   const [searchParams, setSearchParams] = useSearchParams();

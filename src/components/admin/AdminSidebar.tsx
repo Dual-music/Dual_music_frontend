@@ -22,6 +22,7 @@ import {
   Megaphone, User as UserIcon, BookOpen, Phone, Share2, Bell, SlidersHorizontal, Wallet, LogOut, Heart,
 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useAdminBadgeCounts } from "@/hooks/useMenuBadges";
 
 export interface AdminTabItem {
   value: string;
@@ -179,7 +180,10 @@ const LogoutFooter = () => {
 };
 
 const AdminSidebar = ({ active, onSelect, stats, open, onOpenChange }: AdminSidebarProps) => {
-  const items = useAdminTabs(stats);
+  // Compteurs tenus à jour automatiquement (toutes pages) ; `stats` ne sert que de valeur
+  // initiale tant que le premier chargement n'est pas revenu.
+  const liveCounts = useAdminBadgeCounts();
+  const items = useAdminTabs({ ...stats, ...(liveCounts ?? {}) });
   const { t } = useLanguage();
 
   return (

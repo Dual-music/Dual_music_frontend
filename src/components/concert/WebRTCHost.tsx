@@ -29,6 +29,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { VideoFiltersPicker } from "@/components/streaming/VideoFiltersPicker";
+import { RemoteAudioSink } from "@/components/streaming/RemoteAudioSink";
 import { useVideoFilter } from "@/hooks/useVideoFilter";
 import { getFilterCss } from "@/lib/videoFilters";
 
@@ -64,6 +65,8 @@ interface WebRTCHostProps {
   onControlsReady?: (controls: WebRTCHostControls) => void;
   /** Label for the context: "live" or "concert" */
   streamType?: "live" | "concert";
+  /** Flux distants (invités publiant dans la même room), par userId — pour les vignettes. */
+  onRemoteStreamsChange?: (streams: Map<string, MediaStream>) => void;
 }
 
 export const WebRTCHost = ({
@@ -80,6 +83,7 @@ export const WebRTCHost = ({
   hideOverlays = false,
   onControlsReady,
   streamType = "concert",
+  onRemoteStreamsChange,
 }: WebRTCHostProps) => {
   const { toast } = useToast();
   const { t } = useLanguage();
@@ -98,6 +102,7 @@ export const WebRTCHost = ({
 
   const {
     localStream,
+    remoteStreams,
     isConnected,
     connectionState,
     peerCount,
@@ -159,6 +164,12 @@ export const WebRTCHost = ({
       videoRef.current.srcObject = localStream;
     }
   }, [localStream]);
+
+  // Room unique : les invités publient dans MA room → flux remontés au parent (vignettes).
+  useEffect(() => {
+    onRemoteStreamsChange?.(remoteStreams);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remoteStreams]);
 
   // Notify parent when stream is ready
   useEffect(() => {
@@ -298,6 +309,8 @@ export const WebRTCHost = ({
         className="w-full h-full object-contain"
         style={{ filter: getFilterCss(filterId) }}
       />
+      {/* L'hôte entend ses invités (qui publient dans la même room). */}
+      <RemoteAudioSink streams={remoteStreams} />
 
       {isPaused && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/80">

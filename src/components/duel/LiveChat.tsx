@@ -77,9 +77,9 @@ export const LiveChat = ({ duelId, participants = [], managerId }: LiveChatProps
       const parent = m.parent_id ? byId.get(m.parent_id) : null;
       return {
         ...m,
-        user_name: m.profile?.full_name || t("userDefault"),
+        user_name: (m.profile?.display_name || m.profile?.full_name) || t("userDefault"),
         avatar_url: m.profile?.avatar_url ?? undefined,
-        reply_to_name: parent ? (parent.profile?.full_name || t("userDefault")) : undefined,
+        reply_to_name: parent ? ((parent.profile?.display_name || parent.profile?.full_name) || t("userDefault")) : undefined,
         reply_to_message: parent?.message,
       };
     });

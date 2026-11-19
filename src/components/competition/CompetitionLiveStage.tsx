@@ -24,9 +24,10 @@ import { useRoomEvent } from "@/realtime/useRoom";
 import { useRoomBroadcast } from "@/realtime/useRoomBroadcast";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Mic, MicOff, Video as VideoIcon, VideoOff, SwitchCamera, LogOut, Loader2, Trophy, Pin, PinOff, EyeOff, Eye, Maximize2 } from "lucide-react";
+import { Mic, MicOff, Video as VideoIcon, VideoOff, SwitchCamera, LogOut, Loader2, Trophy, Pin, PinOff, EyeOff, Eye, Maximize2, Volume2 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useToast } from "@/hooks/use-toast";
+import { RemoteAudioSink } from "@/components/streaming/RemoteAudioSink";
 
 
 export interface CompetitionStageControls {
@@ -104,6 +105,8 @@ export const CompetitionLiveStage = ({
     isConnected,
     connectionState,
     peerCount,
+    canPlaybackAudio,
+    startAudio,
   } = useLiveKit({
     roomName: competition.livekit_room || `comp-${competition.id}`,
     userId: currentUserId,
@@ -342,6 +345,16 @@ export const CompetitionLiveStage = ({
     remoteStreams.forEach((s, pid) => { if (!bannedArtistIds?.has(pid)) list.push({ id: pid, stream: s, isLocal: false }); });
     return list;
   }, [showLocal, localStream, remoteStreams, currentUserId, bannedArtistIds]);
+
+  // Audio de TOUS les candidats/manager distants (hors bannis), joué indépendamment des cases
+  // affichées : masquer les mini-cases (choix perso ou imposé par l'organisateur) ou n'afficher
+  // que le focus ne doit JAMAIS couper le son de ceux qui parlent.
+  const audibleStreams = useMemo(() => {
+    const m = new Map<string, MediaStream>();
+    remoteStreams.forEach((s, pid) => { if (!bannedArtistIds?.has(pid)) m.set(pid, s); });
+    return m;
+  }, [remoteStreams, bannedArtistIds]);
+  const [audioBlocked, setAudioBlocked] = useState(false);
 
   const [userFocusId, setUserFocusId] = useState<string | null>(null);
   const [forcedFocusId, setForcedFocusId] = useState<string | null>(competition.forced_focus_participant_id || null);
@@ -655,14 +668,28 @@ export const CompetitionLiveStage = ({
         </div>
       )}
 
+      {/* Audio de tous les participants distants (voir `audibleStreams`). */}
+      <RemoteAudioSink streams={audibleStreams} onBlockedChange={setAudioBlocked} />
+      {(audioBlocked || !canPlaybackAudio) && audibleStreams.size > 0 && (
+        <button
+          type="button"
+          onClick={() => { void startAudio(); setAudioBlocked(false); }}
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 flex items-center gap-2 rounded-full bg-black/80 px-5 py-3 text-white font-semibold shadow-lg ring-2 ring-primary animate-pulse"
+        >
+          <Volume2 className="w-5 h-5" /> {t("enableSound") || "Activer le son"}
+        </button>
+      )}
+
     </Wrapper>
   );
 };
 
+// `muted` : l'audio est joué UNE fois par `RemoteAudioSink` (et pas par chaque case, dont le
+// nombre varie avec le focus / « masquer les mini-cases »).
 const RemoteVideo = ({ stream, className }: { stream: MediaStream; className?: string }) => {
   const ref = useRef<HTMLVideoElement>(null);
   useEffect(() => { if (ref.current) ref.current.srcObject = stream; }, [stream]);
-  return <video ref={ref} autoPlay playsInline className={className || "w-full aspect-video bg-black rounded object-cover"} />;
+  return <video ref={ref} autoPlay playsInline muted className={className || "w-full aspect-video bg-black rounded object-cover"} />;
 };
 
 export default CompetitionLiveStage;
